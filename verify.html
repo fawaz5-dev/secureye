@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Secureye — Verify</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #080a0f;
+      --bg2: #0d1017;
+      --bg3: #121620;
+      --border: rgba(255,255,255,0.07);
+      --border-bright: rgba(255,255,255,0.15);
+      --text: #e8eaf0;
+      --text-muted: #6b7280;
+      --text-dim: #374151;
+      --accent: #4fffb0;
+      --accent-dim: rgba(79,255,176,0.08);
+      --accent-mid: rgba(79,255,176,0.18);
+      --red: #ff4f6a;
+      --font-display: 'Syne', sans-serif;
+      --font-mono: 'DM Mono', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-display);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(79,255,176,0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(79,255,176,0.025) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black 20%, transparent 100%);
+      pointer-events: none;
+    }
+
+    /* ── NAV ── */
+    .top-bar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.1rem 2rem;
+      border-bottom: 1px solid var(--border);
+      background: rgba(8,10,15,0.9);
+      backdrop-filter: blur(12px);
+      z-index: 100;
+    }
+
+    .logo {
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--text);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .eye-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 7px var(--accent);
+    }
+
+    .back-link {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      letter-spacing: 0.06em;
+      transition: color 0.2s;
+    }
+    .back-link:hover { color: var(--text); }
+
+    /* ── MAIN CARD ── */
+    .verify-card {
+      width: 100%;
+      max-width: 440px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      position: relative;
+      z-index: 1;
+    }
+
+    .card-header {
+      padding: 1.5rem 1.75rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card-header-left h2 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    .card-header-left p {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+      font-family: var(--font-mono);
+    }
+
+    .mode-toggle {
+      display: flex;
+      gap: 4px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 3px;
+    }
+
+    .mode-btn {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 5px 10px;
+      border: none;
+      border-radius: 3px;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .mode-btn.active {
+      background: var(--bg3);
+      color: var(--text);
+      border: 1px solid var(--border-bright);
+    }
+
+    .card-body {
+      padding: 2rem 1.75rem;
+    }
+
+    /* ── EYE MODE ── */
+    #eye-mode { display: block; }
+    #key-mode { display: none; }
+
+    .camera-frame {
+      width: 100%;
+      aspect-ratio: 4/3;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #video-feed {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 8px;
+      transform: scaleX(-1);
+      display: none;
+    }
+
+    .camera-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .cam-icon {
+      width: 52px; height: 52px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border-bright);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.3rem;
+    }
+
+    .camera-placeholder p {
+      font-size: 0.8rem;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    /* scan overlay */
+    .scan-overlay {
+      position: absolute;
+      inset: 0;
+      display: none;
+      pointer-events: none;
+    }
+
+    .scan-overlay.active { display: block; }
+
+    .scan-line {
+      position: absolute;
+      left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      animation: scan 2.2s ease-in-out infinite;
+      opacity: 0.6;
+    }
+
+    @keyframes scan {
+      0%   { top: 10%; opacity: 0; }
+      10%  { opacity: 0.6; }
+      90%  { opacity: 0.6; }
+      100% { top: 90%; opacity: 0; }
+    }
+
+    .corner {
+      position: absolute;
+      width: 16px; height: 16px;
+    }
+
+    .corner.tl { top: 12px; left: 12px; border-top: 1.5px solid var(--accent); border-left: 1.5px solid var(--accent); }
+    .corner.tr { top: 12px; right: 12px; border-top: 1.5px solid var(--accent); border-right: 1.5px solid var(--accent); }
+    .corner.bl { bottom: 12px; left: 12px; border-bottom: 1.5px solid var(--accent); border-left: 1.5px solid var(--accent); }
+    .corner.br { bottom: 12px; right: 12px; border-bottom: 1.5px solid var(--accent); border-right: 1.5px solid var(--accent); }
+
+    /* progress ring for eye detection */
+    .eye-progress-wrap {
+      position: absolute;
+      bottom: 12px; right: 12px;
+      display: none;
+    }
+
+    .eye-progress-wrap.active { display: block; }
+
+    .eye-progress-wrap svg {
+      transform: rotate(-90deg);
+    }
+
+    .progress-track { stroke: rgba(255,255,255,0.08); }
+    .progress-fill {
+      stroke: var(--accent);
+      stroke-dasharray: 100;
+      stroke-dashoffset: 100;
+      transition: stroke-dashoffset 0.3s ease;
+    }
+
+    /* ── INSTRUCTION ── */
+    .instruction {
+      margin-top: 1.25rem;
+      padding: 0.875rem 1rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      line-height: 1.55;
+      min-height: 54px;
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+    }
+
+    .instruction-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: var(--text-dim);
+      transition: background 0.3s;
+    }
+
+    .instruction-dot.active { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+    /* ── KEYSTROKE MODE ── */
+    .key-prompt {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 0.875rem;
+      line-height: 1.6;
+    }
+
+    .phrase-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 1rem;
+    }
+
+    .phrase-display {
+      font-family: var(--font-mono);
+      font-size: 1.05rem;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      padding: 0.75rem 1rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      flex: 1;
+    }
+
+    .shuffle-btn {
+      flex-shrink: 0;
+      width: 36px; height: 36px;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      background: var(--bg);
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px;
+      transition: color 0.2s, border-color 0.2s, transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    }
+
+    .shuffle-btn:hover { color: var(--accent); border-color: var(--accent-mid); }
+    .shuffle-btn.spin { transform: rotate(180deg); }
+
+    .key-input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0.75rem 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.9rem;
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.2s;
+      letter-spacing: 0.04em;
+    }
+
+    .key-input:focus { border-color: var(--border-bright); }
+    .key-input::placeholder { color: var(--text-dim); }
+
+    .keystroke-bars {
+      display: flex;
+      gap: 3px;
+      height: 28px;
+      align-items: flex-end;
+      margin-top: 0.875rem;
+    }
+
+    .bar {
+      flex: 1;
+      background: var(--accent-dim);
+      border-radius: 2px;
+      height: 4px;
+      transition: height 0.15s ease;
+    }
+
+    .bar.lit {
+      background: var(--accent);
+      opacity: 0.7;
+    }
+
+    /* ── ACTION BUTTON ── */
+    .verify-btn {
+      width: 100%;
+      margin-top: 1.25rem;
+      padding: 0.9rem;
+      background: var(--accent);
+      color: var(--bg);
+      border: none;
+      border-radius: 5px;
+      font-family: var(--font-display);
+      font-size: 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: 0.02em;
+      transition: opacity 0.2s, transform 0.15s;
+    }
+
+    .verify-btn:hover:not(:disabled) { opacity: 0.88; transform: translateY(-1px); }
+    .verify-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* ── SUCCESS STATE ── */
+    .success-state {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding: 2.5rem 1.75rem;
+      gap: 1rem;
+    }
+
+    .success-state.active { display: flex; }
+
+    .success-ring {
+      width: 72px; height: 72px;
+      border-radius: 50%;
+      border: 1.5px solid var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: success-pop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    @keyframes success-pop {
+      from { transform: scale(0.6); opacity: 0; }
+      to   { transform: scale(1);   opacity: 1; }
+    }
+
+    .success-check {
+      color: var(--accent);
+      font-size: 1.6rem;
+    }
+
+    .success-state h3 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .success-state p {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+      max-width: 280px;
+    }
+
+    .token-display {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0.75rem 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      word-break: break-all;
+      letter-spacing: 0.03em;
+      line-height: 1.6;
+    }
+
+    .token-label {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+      text-align: left;
+      width: 100%;
+    }
+
+    .token-ttl {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--accent);
+    }
+
+    .try-again {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.5rem 1.25rem;
+      cursor: pointer;
+      letter-spacing: 0.06em;
+      transition: color 0.2s, border-color 0.2s;
+    }
+
+    .try-again:hover { color: var(--text); border-color: var(--border-bright); }
+
+    /* ── FOOTER NOTE ── */
+    .privacy-note {
+      margin-top: 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--text-dim);
+      text-align: center;
+      letter-spacing: 0.02em;
+      line-height: 1.6;
+    }
+
+    .privacy-note span { color: var(--accent); }
+
+    /* ── STATUS BAR ── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0.6rem 1.75rem;
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .status-dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--text-dim);
+    }
+
+    .status-dot.ready { background: var(--accent); box-shadow: 0 0 5px var(--accent); }
+    .status-dot.processing { background: #facc15; box-shadow: 0 0 5px #facc15; animation: blink 0.8s ease-in-out infinite; }
+    .status-dot.done { background: var(--accent); }
+
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  </style>
+</head>
+<body>
+
+  <div class="top-bar">
+    <a href="index.html" class="logo">
+      <span class="eye-dot"></span>
+      SECUREYE
+    </a>
+    <a href="index.html" class="back-link">← back to home</a>
+  </div>
+
+  <div class="verify-card">
+
+    <!-- HEADER -->
+    <div class="card-header">
+      <div class="card-header-left">
+        <h2>Human verification</h2>
+        <p>demo.secureye.io</p>
+      </div>
+      <div class="mode-toggle">
+        <button class="mode-btn active" id="btn-eye" onclick="switchMode('eye')">Eye</button>
+        <button class="mode-btn" id="btn-key" onclick="switchMode('key')">Type</button>
+      </div>
+    </div>
+
+    <!-- EYE MODE -->
+    <div class="card-body" id="eye-mode">
+      <div class="camera-frame" id="cam-frame">
+        <video id="video-feed" autoplay playsinline muted></video>
+
+        <div class="camera-placeholder" id="cam-placeholder">
+          <div class="cam-icon">👁</div>
+          <p>Camera access needed<br>for eye verification</p>
+        </div>
+
+        <div class="scan-overlay" id="scan-overlay">
+          <div class="scan-line"></div>
+          <div class="corner tl"></div>
+          <div class="corner tr"></div>
+          <div class="corner bl"></div>
+          <div class="corner br"></div>
+        </div>
+
+        <div class="eye-progress-wrap" id="eye-progress">
+          <svg width="36" height="36" viewBox="0 0 36 36">
+            <circle class="progress-track" cx="18" cy="18" r="15" fill="none" stroke-width="2"/>
+            <circle class="progress-fill" id="prog-circle" cx="18" cy="18" r="15" fill="none" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="instruction" id="eye-instruction">
+        <div class="instruction-dot" id="inst-dot"></div>
+        <span id="inst-text">Tap "Begin verification" to activate your camera</span>
+      </div>
+
+      <div class="success-state" id="eye-success">
+        <div class="success-ring"><span class="success-check">✓</span></div>
+        <h3>Identity confirmed</h3>
+        <p>You've been verified as a live human. Your biometrics were never transmitted.</p>
+        <div class="token-label">Verification token (expires in <span class="token-ttl" id="eye-ttl">60s</span>)</div>
+        <div class="token-display" id="eye-token"></div>
+        <button class="try-again" onclick="resetEye()">Try again</button>
+      </div>
+
+      <button class="verify-btn" id="eye-btn" onclick="startEyeVerification()">Begin verification</button>
+    </div>
+
+    <!-- KEY MODE -->
+    <div class="card-body" id="key-mode">
+      <p class="key-prompt">Type the phrase below naturally. Your rhythm — not your words — proves you're human. Nothing is transmitted.</p>
+
+      <div class="phrase-row">
+        <div class="phrase-display" id="phrase-text"></div>
+        <button class="shuffle-btn" id="shuffle-btn" title="New phrase" onclick="shufflePhrase()">&#8635;</button>
+      </div>
+
+      <input
+        class="key-input"
+        id="key-input"
+        type="text"
+        placeholder="start typing…"
+        autocomplete="off"
+        spellcheck="false"
+        oninput="onKeyInput(event)"
+        onkeydown="onKeyDown(event)"
+      >
+
+      <div class="keystroke-bars" id="bars">
+        <!-- filled by JS -->
+      </div>
+
+      <div class="success-state" id="key-success">
+        <div class="success-ring"><span class="success-check">✓</span></div>
+        <h3>Identity confirmed</h3>
+        <p>Your typing rhythm matches human behavioral patterns. Nothing was stored.</p>
+        <div class="token-label">Verification token (expires in <span class="token-ttl" id="key-ttl">60s</span>)</div>
+        <div class="token-display" id="key-token"></div>
+        <button class="try-again" onclick="resetKey()">Try again</button>
+      </div>
+
+      <button class="verify-btn" id="key-btn" disabled onclick="submitKeystroke()">Analyzing…</button>
+    </div>
+
+    <!-- STATUS BAR -->
+    <div class="status-bar">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">ready</span>
+      <span style="margin-left:auto; color: var(--accent); opacity:0.5">0 bytes transmitted</span>
+    </div>
+
+  </div>
+
+  <div class="privacy-note">
+    Processing happens <span>entirely in your browser</span>.<br>
+    Your camera feed and keystrokes never leave this device.
+  </div>
+
+  <script>
+    /* ── PHRASES ── */
+    const PHRASES = [
+      /* existential */
+      'i think therefore i am',
+      'consciousness is not a checkbox',
+      'only humans make typos',
+      'bots dont daydream',
+      'i have a dentist i dread',
+      'my coffee is always too hot',
+      'i have opinions about fonts',
+      'i once cried at a commercial',
+      'i forgot what i was about to say',
+      /* philosophical nudges */
+      'the present moment always will have been',
+      'entropy increases but here we are',
+      'time is weird and so am i',
+      'somewhere a dog is dreaming',
+      'nobody knows what a quark looks like',
+      /* mundane human */
+      'tuesdays feel different than thursdays',
+      'stairs are harder going down',
+      'cold pizza is actually fine',
+      'i have a drawer full of cables',
+      'the checkout line i pick always moves slowest',
+      'i pretend i read the terms and conditions',
+      'elevator silence is a shared experience',
+      /* cheeky / meta */
+      'a bot would ace this and feel nothing',
+      'no algorithm dreams of electric sheep',
+      'captchas used to make me click buses',
+      'fire hydrants never wronged me personally',
+      'my data is mine and i want it back',
+      'privacy is not a premium feature',
+      'your face stays on your face',
+      /* poetic short */
+      'light bends around heavy things',
+      'every mirror is a little late',
+      'rain sounds different on every roof',
+      'the last page of every book is sad',
+      'beginnings are disguised as ordinary days',
+    ];
+
+    let lastPhraseIndex = -1;
+
+    function pickPhrase() {
+      let idx;
+      do { idx = Math.floor(Math.random() * PHRASES.length); }
+      while (idx === lastPhraseIndex);
+      lastPhraseIndex = idx;
+      return PHRASES[idx];
+    }
+
+    function animatePhrase(el, newText) {
+      el.style.transition = 'opacity 0.18s ease, transform 0.18s ease';
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(-6px)';
+      setTimeout(() => {
+        el.textContent = newText;
+        el.style.transform = 'translateY(4px)';
+        requestAnimationFrame(() => {
+          el.style.opacity = '1';
+          el.style.transform = 'translateY(0)';
+        });
+      }, 180);
+    }
+
+    /* ── MODE SWITCH ── */
+    function switchMode(mode) {
+      document.getElementById('eye-mode').style.display = mode === 'eye' ? 'block' : 'none';
+      document.getElementById('key-mode').style.display = mode === 'key' ? 'block' : 'none';
+      document.getElementById('btn-eye').classList.toggle('active', mode === 'eye');
+      document.getElementById('btn-key').classList.toggle('active', mode === 'key');
+      if (mode === 'key') initKeyMode();
+    }
+
+    /* ── TOKEN GENERATOR (mock) ── */
+    function genToken() {
+      const arr = new Uint8Array(32);
+      crypto.getRandomValues(arr);
+      return 'eye_' + Array.from(arr).map(b => b.toString(16).padStart(2,'0')).join('').slice(0,48);
+    }
+
+    function startTTL(elId, onExpire) {
+      let t = 60;
+      const el = document.getElementById(elId);
+      const iv = setInterval(() => {
+        t--;
+        if (el) el.textContent = t + 's';
+        if (t <= 0) { clearInterval(iv); if (onExpire) onExpire(); }
+      }, 1000);
+      return iv;
+    }
+
+    /* ── EYE MODE ── */
+    let stream = null;
+    let eyeState = 'idle';
+
+    async function startEyeVerification() {
+      if (eyeState !== 'idle') return;
+      eyeState = 'requesting';
+
+      setStatus('processing', 'requesting camera…');
+      document.getElementById('eye-btn').disabled = true;
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+        const video = document.getElementById('video-feed');
+        video.srcObject = stream;
+        video.style.display = 'block';
+        document.getElementById('cam-placeholder').style.display = 'none';
+        document.getElementById('scan-overlay').classList.add('active');
+        document.getElementById('eye-progress').classList.add('active');
+        eyeState = 'scanning';
+        setStatus('processing', 'scanning for liveness…');
+        setInstruction(true, 'Look directly at the camera and hold still…');
+        runLivenessSim();
+      } catch(e) {
+        eyeState = 'idle';
+        setInstruction(false, 'Camera permission denied — switch to Type mode instead.');
+        document.getElementById('eye-btn').disabled = false;
+        document.getElementById('eye-btn').textContent = 'Try again';
+        setStatus('ready', 'camera unavailable');
+      }
+    }
+
+    function runLivenessSim() {
+      const circle = document.getElementById('prog-circle');
+      const circumference = 2 * Math.PI * 15;
+      circle.style.strokeDasharray = circumference;
+      circle.style.strokeDashoffset = circumference;
+
+      const steps = [
+        [600,  'Detecting face boundaries…'],
+        [1200, 'Checking liveness — blink naturally…'],
+        [2000, 'Analyzing iris patterns…'],
+        [2800, 'Confirming human presence…'],
+        [3400, 'Generating proof token…'],
+      ];
+
+      steps.forEach(([delay, msg]) => {
+        setTimeout(() => {
+          if (eyeState !== 'scanning') return;
+          setInstruction(true, msg);
+          const progress = delay / 3400;
+          circle.style.strokeDashoffset = circumference * (1 - progress);
+        }, delay);
+      });
+
+      setTimeout(() => {
+        if (eyeState !== 'scanning') return;
+        eyeState = 'done';
+        stopCamera();
+        showEyeSuccess();
+      }, 3800);
+    }
+
+    function stopCamera() {
+      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    }
+
+    function showEyeSuccess() {
+      document.getElementById('eye-btn').style.display = 'none';
+      document.getElementById('eye-instruction').style.display = 'none';
+      document.getElementById('cam-frame').style.display = 'none';
+      document.getElementById('eye-success').classList.add('active');
+
+      const token = genToken();
+      document.getElementById('eye-token').textContent = token;
+      setStatus('done', 'verified — token issued');
+      startTTL('eye-ttl', () => {
+        document.getElementById('eye-token').style.color = 'var(--red)';
+        document.getElementById('eye-token').textContent = '[token expired]';
+      });
+    }
+
+    function resetEye() {
+      eyeState = 'idle';
+      document.getElementById('eye-success').classList.remove('active');
+      document.getElementById('cam-frame').style.display = 'flex';
+      document.getElementById('video-feed').style.display = 'none';
+      document.getElementById('video-feed').srcObject = null;
+      document.getElementById('cam-placeholder').style.display = 'flex';
+      document.getElementById('scan-overlay').classList.remove('active');
+      document.getElementById('eye-progress').classList.remove('active');
+      document.getElementById('prog-circle').style.strokeDashoffset = '100';
+      document.getElementById('eye-btn').style.display = 'block';
+      document.getElementById('eye-btn').disabled = false;
+      document.getElementById('eye-btn').textContent = 'Begin verification';
+      document.getElementById('eye-instruction').style.display = 'flex';
+      setInstruction(false, 'Tap "Begin verification" to activate your camera');
+      setStatus('ready', 'ready');
+    }
+
+    function setInstruction(active, text) {
+      document.getElementById('inst-dot').className = 'instruction-dot' + (active ? ' active' : '');
+      document.getElementById('inst-text').textContent = text;
+    }
+
+    /* ── KEY MODE ── */
+    let keyTimings = [];
+    let lastKeyTime = null;
+    let keyTarget = '';
+    let keyComplete = false;
+
+    function initKeyMode(animate) {
+      const el = document.getElementById('phrase-text');
+      keyTarget = pickPhrase();
+      if (animate) {
+        animatePhrase(el, keyTarget);
+      } else {
+        el.textContent = keyTarget;
+      }
+      document.getElementById('key-input').value = '';
+      document.getElementById('key-input').disabled = false;
+      document.getElementById('key-btn').disabled = true;
+      document.getElementById('key-btn').textContent = 'Analyzing…';
+      document.getElementById('key-success').classList.remove('active');
+      keyTimings = [];
+      lastKeyTime = null;
+      keyComplete = false;
+      initBars();
+      setStatus('ready', 'ready');
+    }
+
+    function initBars() {
+      const container = document.getElementById('bars');
+      container.innerHTML = '';
+      for (let i = 0; i < 24; i++) {
+        const b = document.createElement('div');
+        b.className = 'bar';
+        container.appendChild(b);
+      }
+    }
+
+    function onKeyDown(e) {
+      const now = performance.now();
+      if (lastKeyTime !== null) {
+        keyTimings.push(now - lastKeyTime);
+      }
+      lastKeyTime = now;
+    }
+
+    function onKeyInput(e) {
+      const val = e.target.value;
+      updateBars(val.length);
+
+      if (val === keyTarget && !keyComplete) {
+        keyComplete = true;
+        if (isHumanTyping(keyTimings)) {
+          document.getElementById('key-btn').disabled = false;
+          document.getElementById('key-btn').textContent = 'Confirm verification';
+          setStatus('ready', 'human pattern detected');
+        } else {
+          document.getElementById('key-btn').disabled = true;
+          document.getElementById('key-btn').textContent = 'Please type naturally';
+          setStatus('ready', 'unusual pattern — retry');
+        }
+      } else if (val !== keyTarget) {
+        keyComplete = false;
+        document.getElementById('key-btn').disabled = true;
+        document.getElementById('key-btn').textContent = 'Analyzing…';
+      }
+    }
+
+    function isHumanTyping(timings) {
+      if (timings.length < 3) return false;
+      const avg = timings.reduce((a, b) => a + b, 0) / timings.length;
+      if (avg < 30) return false; // too fast (bot)
+      const variance = timings.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / timings.length;
+      return variance > 200; // humans are irregular
+    }
+
+    function updateBars(typed) {
+      const bars = document.querySelectorAll('.bar');
+      const target = keyTarget.length;
+      bars.forEach((b, i) => {
+        const progress = Math.min(typed / target, 1);
+        const activated = i / bars.length < progress;
+        const h = activated ? Math.max(8, (keyTimings[Math.floor(i * keyTimings.length / bars.length)] || 50) / 4) : 4;
+        b.style.height = Math.min(h, 28) + 'px';
+        b.classList.toggle('lit', activated);
+      });
+    }
+
+    function submitKeystroke() {
+      setStatus('processing', 'generating token…');
+      document.getElementById('key-btn').disabled = true;
+      document.getElementById('key-input').disabled = true;
+
+      setTimeout(() => {
+        document.getElementById('key-btn').style.display = 'none';
+        document.getElementById('key-input').style.display = 'none';
+        document.getElementById('bars').style.display = 'none';
+        document.getElementById('key-success').classList.add('active');
+
+        const token = 'key_' + genToken().slice(4);
+        document.getElementById('key-token').textContent = token;
+        setStatus('done', 'verified — token issued');
+        startTTL('key-ttl', () => {
+          document.getElementById('key-token').style.color = 'var(--red)';
+          document.getElementById('key-token').textContent = '[token expired]';
+        });
+      }, 800);
+    }
+
+    function resetKey() {
+      document.getElementById('key-btn').style.display = 'block';
+      document.getElementById('key-input').style.display = 'block';
+      document.getElementById('bars').style.display = 'flex';
+      document.getElementById('phrase-row') && (document.getElementById('shuffle-btn').style.display = 'flex');
+      initKeyMode(true);
+    }
+
+    function shufflePhrase() {
+      if (keyComplete) return;
+      const btn = document.getElementById('shuffle-btn');
+      btn.classList.add('spin');
+      setTimeout(() => btn.classList.remove('spin'), 320);
+      const el = document.getElementById('phrase-text');
+      keyTarget = pickPhrase();
+      animatePhrase(el, keyTarget);
+      document.getElementById('key-input').value = '';
+      keyTimings = [];
+      lastKeyTime = null;
+      keyComplete = false;
+      document.getElementById('key-btn').disabled = true;
+      document.getElementById('key-btn').textContent = 'Analyzing…';
+      initBars();
+    }
+
+    /* ── STATUS ── */
+    function setStatus(state, text) {
+      const dot = document.getElementById('status-dot');
+      dot.className = 'status-dot ' + state;
+      document.getElementById('status-text').textContent = text;
+    }
+
+    /* ── INIT ── */
+    initKeyMode(false);
+    initBars();
+    setStatus('ready', 'ready');
+  </script>
+
+</body>
+</html>
