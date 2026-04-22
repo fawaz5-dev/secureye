@@ -18,9 +18,10 @@
       --text: #e8eaf0;
       --text-muted: #6b7280;
       --text-dim: #374151;
-      --accent: #4fffb0;
-      --accent-dim: rgba(79,255,176,0.08);
-      --accent-mid: rgba(79,255,176,0.18);
+      /* UPDATED COLORS TO RED */
+      --accent: #ff4f6a;
+      --accent-dim: rgba(255, 79, 106, 0.08);
+      --accent-mid: rgba(255, 79, 106, 0.18);
       --red: #ff4f6a;
       --font-display: 'Syne', sans-serif;
       --font-mono: 'DM Mono', monospace;
@@ -43,8 +44,8 @@
       position: fixed;
       inset: 0;
       background-image:
-        linear-gradient(rgba(79,255,176,0.025) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(79,255,176,0.025) 1px, transparent 1px);
+        linear-gradient(rgba(255, 79, 106, 0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 79, 106, 0.025) 1px, transparent 1px);
       background-size: 48px 48px;
       mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black 20%, transparent 100%);
       pointer-events: none;
@@ -378,7 +379,7 @@
       margin-top: 1.25rem;
       padding: 0.9rem;
       background: var(--accent);
-      color: var(--bg);
+      color: #fff; /* White text for better contrast on red */
       border: none;
       border-radius: 5px;
       font-family: var(--font-display);
@@ -536,7 +537,6 @@
 
   <div class="verify-card">
 
-    <!-- HEADER -->
     <div class="card-header">
       <div class="card-header-left">
         <h2>Human verification</h2>
@@ -548,7 +548,6 @@
       </div>
     </div>
 
-    <!-- EYE MODE -->
     <div class="card-body" id="eye-mode">
       <div class="camera-frame" id="cam-frame">
         <video id="video-feed" autoplay playsinline muted></video>
@@ -591,7 +590,6 @@
       <button class="verify-btn" id="eye-btn" onclick="startEyeVerification()">Begin verification</button>
     </div>
 
-    <!-- KEY MODE -->
     <div class="card-body" id="key-mode">
       <p class="key-prompt">Type the phrase below naturally. Your rhythm — not your words — proves you're human. Nothing is transmitted.</p>
 
@@ -612,8 +610,7 @@
       >
 
       <div class="keystroke-bars" id="bars">
-        <!-- filled by JS -->
-      </div>
+        </div>
 
       <div class="success-state" id="key-success">
         <div class="success-ring"><span class="success-check">✓</span></div>
@@ -627,7 +624,6 @@
       <button class="verify-btn" id="key-btn" disabled onclick="submitKeystroke()">Analyzing…</button>
     </div>
 
-    <!-- STATUS BAR -->
     <div class="status-bar">
       <div class="status-dot" id="status-dot"></div>
       <span id="status-text">ready</span>
@@ -644,7 +640,6 @@
   <script>
     /* ── PHRASES ── */
     const PHRASES = [
-      /* existential */
       'i think therefore i am',
       'consciousness is not a checkbox',
       'only humans make typos',
@@ -654,13 +649,11 @@
       'i have opinions about fonts',
       'i once cried at a commercial',
       'i forgot what i was about to say',
-      /* philosophical nudges */
       'the present moment always will have been',
       'entropy increases but here we are',
       'time is weird and so am i',
       'somewhere a dog is dreaming',
       'nobody knows what a quark looks like',
-      /* mundane human */
       'tuesdays feel different than thursdays',
       'stairs are harder going down',
       'cold pizza is actually fine',
@@ -668,7 +661,6 @@
       'the checkout line i pick always moves slowest',
       'i pretend i read the terms and conditions',
       'elevator silence is a shared experience',
-      /* cheeky / meta */
       'a bot would ace this and feel nothing',
       'no algorithm dreams of electric sheep',
       'captchas used to make me click buses',
@@ -676,7 +668,6 @@
       'my data is mine and i want it back',
       'privacy is not a premium feature',
       'your face stays on your face',
-      /* poetic short */
       'light bends around heavy things',
       'every mirror is a little late',
       'rain sounds different on every roof',
@@ -909,9 +900,9 @@
     function isHumanTyping(timings) {
       if (timings.length < 3) return false;
       const avg = timings.reduce((a, b) => a + b, 0) / timings.length;
-      if (avg < 30) return false; // too fast (bot)
+      if (avg < 30) return false;
       const variance = timings.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / timings.length;
-      return variance > 200; // humans are irregular
+      return variance > 200;
     }
 
     function updateBars(typed) {

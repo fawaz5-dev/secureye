@@ -19,9 +19,10 @@
       --text: #e8eaf0;
       --text-muted: #6b7280;
       --text-dim: #374151;
-      --accent: #4fffb0;
-      --accent-dim: rgba(79,255,176,0.08);
-      --accent-mid: rgba(79,255,176,0.2);
+      /* CHANGED TO RED */
+      --accent: #ff4f6a; 
+      --accent-dim: rgba(255, 79, 106, 0.08);
+      --accent-mid: rgba(255, 79, 106, 0.2);
       --red: #ff4f6a;
       --font-display: 'Syne', sans-serif;
       --font-mono: 'DM Mono', monospace;
@@ -131,9 +132,10 @@
     .hero-grid-bg {
       position: absolute;
       inset: 0;
+      /* Updated grid lines to red */
       background-image:
-        linear-gradient(rgba(79,255,176,0.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(79,255,176,0.03) 1px, transparent 1px);
+        linear-gradient(rgba(255,79,106,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,79,106,0.03) 1px, transparent 1px);
       background-size: 60px 60px;
       mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 30%, transparent 100%);
     }
@@ -192,7 +194,7 @@
       border-radius: 50%;
       background: var(--accent);
       opacity: 0.9;
-      box-shadow: 0 0 20px rgba(79,255,176,0.5);
+      box-shadow: 0 0 20px rgba(255,79,106,0.5);
       animation: pulse-pupil 3s ease-in-out infinite;
     }
 
@@ -253,7 +255,7 @@
       font-weight: 600;
       padding: 0.85rem 2rem;
       background: var(--accent);
-      color: var(--bg);
+      color: #fff; /* White text looks better on the red primary */
       border: none;
       border-radius: 3px;
       cursor: pointer;
@@ -524,7 +526,7 @@
       font-size: 0.75rem;
     }
 
-    .tick.yes { background: rgba(79,255,176,0.1); color: var(--accent); }
+    .tick.yes { background: rgba(255,79,106,0.1); color: var(--accent); }
     .tick.no  { background: rgba(255,79,106,0.1); color: var(--red); }
 
     /* ── INTEGRATION ── */
@@ -644,7 +646,8 @@
       top: 50%; left: 50%;
       transform: translate(-50%, -50%);
       width: 600px; height: 300px;
-      background: radial-gradient(ellipse, rgba(79,255,176,0.06) 0%, transparent 70%);
+      /* Updated radial gradient to red */
+      background: radial-gradient(ellipse, rgba(255,79,106,0.06) 0%, transparent 70%);
       pointer-events: none;
     }
 
@@ -712,7 +715,6 @@
 </head>
 <body>
 
-  <!-- NAV -->
   <nav>
     <a href="/" class="nav-logo">
       <span class="eye-dot"></span>
@@ -727,7 +729,6 @@
     </ul>
   </nav>
 
-  <!-- HERO -->
   <div class="hero">
     <div class="hero-grid-bg"></div>
 
@@ -771,7 +772,6 @@
     </div>
   </div>
 
-  <!-- HOW IT WORKS -->
   <section id="how-it-works">
     <p class="section-label fade-up">How it works</p>
     <h2 class="fade-up">Two ways to prove you're human.<br>One standard for privacy.</h2>
@@ -805,7 +805,6 @@
     </div>
   </section>
 
-  <!-- PRIVACY -->
   <div class="privacy-section" id="privacy">
     <div class="privacy-inner">
       <p class="section-label fade-up">Privacy by design</p>
@@ -857,7 +856,6 @@
     </div>
   </div>
 
-  <!-- VS CAPTCHA -->
   <section id="compare">
     <p class="section-label fade-up">Why switch</p>
     <h2 class="fade-up">CAPTCHA was built for a different internet.</h2>
@@ -906,7 +904,6 @@
     </table>
   </section>
 
-  <!-- INTEGRATION -->
   <section id="integrate">
     <p class="section-label fade-up">For developers</p>
     <h2 class="fade-up">Two lines of HTML.<br>That's the integration.</h2>
@@ -956,7 +953,6 @@
     </div>
   </section>
 
-  <!-- PRICING -->
   <section id="pricing">
     <p class="section-label fade-up">Pricing</p>
     <h2 class="fade-up">Start free. Scale when you're ready.</h2>
@@ -1002,7 +998,6 @@
     </div>
   </section>
 
-  <!-- CTA -->
   <div class="cta-band">
     <p class="section-label">Get started</p>
     <h2>Ready to drop the fire hydrants?</h2>
@@ -1010,7 +1005,6 @@
     <a href="verify.html" class="btn-primary">Try a live demo →</a>
   </div>
 
-  <!-- FOOTER -->
   <footer>
     <div class="footer-logo">
       <span class="eye-dot"></span>

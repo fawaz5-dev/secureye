@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Secureye Docs — Developer Reference</title>
+  <meta name="description" content="Everything you need to integrate Secureye human verification into your site in under 10 minutes.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700&family=DM+Mono:wght@300;400;500&family=Lora:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #080a0f;
+      --bg2:         #0d1017;
+      --bg3:         #121620;
+      --bg-code:     #0a0c12;
+      --border:      rgba(255,255,255,0.07);
+      --border-b:    rgba(255,255,255,0.13);
+      --text:        #dde1ea;
+      --text-muted:  #6b7280;
+      --text-dim:    #2d3748;
+      --accent:      #ff4f6a;
+      --accent-dim:  rgba(255,79,106,0.07);
+      --accent-mid:  rgba(255,79,106,0.18);
+      --red:         #ff4f6a;
+      --error:       #ff6b35;
+      --amber:       #fbbf24;
+      --blue:        #60a5fa;
+      --purple:      #a78bfa;
+      --sidebar-w:   240px;
+      --topbar-h:    52px;
+      --font:        'Syne', sans-serif;
+      --mono:        'DM Mono', monospace;
+      --serif:       'Lora', serif;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    /* ── TOPBAR ── */
+    .topbar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: var(--topbar-h);
+      background: rgba(8,10,15,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 1.5rem;
+      gap: 1.5rem;
+      z-index: 200;
+    }
+
+    .logo {
+      font-weight: 700;
+      font-size: 0.95rem;
+      letter-spacing: 0.07em;
+      color: var(--text);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex-shrink: 0;
+    }
+
+    .eye-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 7px var(--accent);
+    }
+
+    .topbar-sep { width: 1px; height: 20px; background: var(--border-b); }
+
+    .topbar-label {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .topbar-nav {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+
+    .topbar-nav a {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      letter-spacing: 0.04em;
+      transition: color 0.15s;
+    }
+    .topbar-nav a:hover { color: var(--text); }
+
+    .topbar-cta {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      padding: 0.4rem 1rem;
+      border: 1px solid var(--accent);
+      border-radius: 3px;
+      color: var(--accent) !important;
+      transition: background 0.15s !important;
+    }
+    .topbar-cta:hover { background: var(--accent-dim) !important; }
+
+    /* ── LAYOUT ── */
+    .layout {
+      display: flex;
+      padding-top: var(--topbar-h);
+      min-height: 100vh;
+    }
+
+    /* ── SIDEBAR ── */
+    .sidebar {
+      width: var(--sidebar-w);
+      flex-shrink: 0;
+      position: fixed;
+      top: var(--topbar-h);
+      left: 0;
+      bottom: 0;
+      overflow-y: auto;
+      border-right: 1px solid var(--border);
+      padding: 1.75rem 0 2rem;
+      background: var(--bg2);
+    }
+
+    .sidebar::-webkit-scrollbar { width: 4px; }
+    .sidebar::-webkit-scrollbar-thumb { background: var(--border-b); border-radius: 2px; }
+
+    .nav-group { margin-bottom: 1.75rem; }
+
+    .nav-group-label {
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      padding: 0 1.25rem;
+      margin-bottom: 0.4rem;
+    }
+
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0.38rem 1.25rem;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.15s, background 0.15s;
+      border-left: 2px solid transparent;
+    }
+
+    .nav-link:hover { color: var(--text); background: var(--accent-dim); }
+    .nav-link.active { color: var(--accent); border-left-color: var(--accent); background: var(--accent-dim); }
+
+    .nav-link .dot {
+      width: 4px; height: 4px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.5;
+      flex-shrink: 0;
+    }
+
+    /* ── CONTENT ── */
+    .content {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      max-width: 780px;
+      padding: 3rem 3.5rem 6rem;
+    }
+
+    /* ── TYPOGRAPHY ── */
+    .doc-section { margin-bottom: 4rem; }
+
+    .section-badge {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.6rem;
+      opacity: 0.7;
+    }
+
+    h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      line-height: 1.2;
+      margin-bottom: 1rem;
+      color: var(--text);
+    }
+
+    h2 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      letter-spacing: -0.015em;
+      margin-top: 2.5rem;
+      margin-bottom: 0.75rem;
+      color: var(--text);
+      padding-top: 2.5rem;
+      border-top: 1px solid var(--border);
+    }
+
+    h2:first-of-type { margin-top: 0; border-top: none; padding-top: 0; }
+
+    h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin: 1.5rem 0 0.5rem;
+      color: var(--text);
+    }
+
+    p { color: var(--text-muted); margin-bottom: 1rem; }
+    p:last-child { margin-bottom: 0; }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    strong { color: var(--text); font-weight: 600; }
+
+    /* ── HERO INTRO ── */
+    .doc-hero {
+      padding-bottom: 2.5rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 3rem;
+    }
+
+    .doc-hero p {
+      font-size: 1.05rem;
+      line-height: 1.75;
+      max-width: 560px;
+    }
+
+    .time-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--accent);
+      background: var(--accent-dim);
+      border: 1px solid var(--accent-mid);
+      padding: 4px 10px;
+      border-radius: 3px;
+      margin-bottom: 1.25rem;
+    }
+
+    .time-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+
+    /* ── CALLOUT BOXES ── */
+    .callout {
+      padding: 1rem 1.25rem;
+      border-radius: 5px;
+      margin: 1.25rem 0;
+      font-size: 0.875rem;
+      line-height: 1.65;
+      display: flex;
+      gap: 0.75rem;
+      align-items: flex-start;
+    }
+
+    .callout-icon { flex-shrink: 0; font-size: 1rem; margin-top: 1px; }
+
+    .callout p { margin: 0; }
+
+    .callout.info {
+      background: rgba(96,165,250,0.07);
+      border: 1px solid rgba(96,165,250,0.2);
+    }
+    .callout.info p { color: #93c5fd; }
+
+    .callout.warning {
+      background: rgba(251,191,36,0.07);
+      border: 1px solid rgba(251,191,36,0.2);
+    }
+    .callout.warning p { color: #fcd34d; }
+
+    .callout.tip {
+      background: var(--accent-dim);
+      border: 1px solid var(--accent-mid);
+    }
+    .callout.tip p { color: #ffa0b0; }
+
+    /* ── CODE BLOCKS ── */
+    .code-wrap {
+      margin: 1rem 0;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid var(--border-b);
+    }
+
+    .code-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.5rem 1rem;
+      background: var(--bg3);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .code-lang {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .copy-btn {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      background: none;
+      border: 1px solid var(--border-b);
+      border-radius: 3px;
+      padding: 2px 8px;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .copy-btn:hover { color: var(--accent); border-color: var(--accent-mid); }
+    .copy-btn.copied { color: var(--accent); }
+
+    pre {
+      background: var(--bg-code);
+      padding: 1.25rem 1.5rem;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 0.825rem;
+      line-height: 1.75;
+    }
+
+    pre::-webkit-scrollbar { height: 4px; }
+    pre::-webkit-scrollbar-thumb { background: var(--border-b); border-radius: 2px; }
+
+    code {
+      font-family: var(--mono);
+      font-size: 0.82em;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      padding: 1px 5px;
+      border-radius: 3px;
+      color: var(--accent);
+    }
+
+    pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: inherit;
+      color: inherit;
+      border-radius: 0;
+    }
+
+    /* syntax */
+    .kw  { color: var(--purple); }
+    .str { color: var(--accent); }
+    .cm  { color: #4b5563; font-style: italic; }
+    .fn  { color: var(--blue); }
+    .nm  { color: var(--amber); }
+    .tg  { color: var(--blue); }
+    .at  { color: var(--purple); }
+    .vl  { color: var(--accent); }
+
+    /* ── TABLES ── */
+    .table-wrap { overflow-x: auto; margin: 1.25rem 0; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+
+    th {
+      text-align: left;
+      padding: 0.6rem 1rem;
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border-b);
+    }
+
+    td {
+      padding: 0.7rem 1rem;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-muted);
+      vertical-align: top;
+    }
+
+    td:first-child { color: var(--text); font-family: var(--mono); font-size: 0.8rem; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--bg2); }
+
+    td code { font-size: 0.78rem; }
+
+    /* ── STEPS ── */
+    .steps-list {
+      counter-reset: step;
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .step-item {
+      display: flex;
+      gap: 1.25rem;
+      padding-bottom: 2rem;
+      position: relative;
+    }
+
+    .step-item::before {
+      content: '';
+      position: absolute;
+      left: 14px;
+      top: 30px;
+      bottom: 0;
+      width: 1px;
+      background: var(--border-b);
+    }
+
+    .step-item:last-child::before { display: none; }
+
+    .step-num {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      border: 1px solid var(--border-b);
+      background: var(--bg2);
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: var(--accent);
+      counter-increment: step;
+    }
+
+    .step-body { flex: 1; padding-top: 4px; }
+    .step-body h3 { margin-top: 0; margin-bottom: 0.4rem; }
+
+    /* ── PARAMS ── */
+    .param-list { display: flex; flex-direction: column; gap: 1px; margin: 1rem 0; }
+
+    .param {
+      padding: 0.9rem 1rem;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      gap: 0.5rem 1.5rem;
+      align-items: start;
+      margin-bottom: 6px;
+    }
+
+    .param-name {
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      color: var(--accent);
+    }
+
+    .param-name .req {
+      font-size: 0.62rem;
+      color: var(--red);
+      margin-left: 4px;
+      font-family: var(--font);
+    }
+
+    .param-name .opt {
+      font-size: 0.62rem;
+      color: var(--text-muted);
+      margin-left: 4px;
+      font-family: var(--font);
+    }
+
+    .param-desc { font-size: 0.825rem; color: var(--text-muted); line-height: 1.55; }
+    .param-type { font-family: var(--mono); font-size: 0.72rem; color: var(--purple); }
+
+    /* ── RESPONSE BADGE ── */
+    .resp-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      padding: 3px 8px;
+      border-radius: 3px;
+      margin-right: 6px;
+    }
+
+    .resp-badge.ok  { background: rgba(255,79,106,0.1); color: var(--accent); }
+    .resp-badge.err { background: rgba(255,107,53,0.1); color: var(--error); }
+
+    /* ── ON THIS PAGE ── */
+    .on-this-page {
+      position: fixed;
+      right: 2rem;
+      top: calc(var(--topbar-h) + 2rem);
+      width: 180px;
+      display: none;
+    }
+
+    @media (min-width: 1280px) { .on-this-page { display: block; } }
+
+    .otp-label {
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 0.75rem;
+    }
+
+    .otp-link {
+      display: block;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 3px 0;
+      transition: color 0.15s;
+    }
+
+    .otp-link:hover { color: var(--text); }
+
+    /* ── MOBILE ── */
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .content { margin-left: 0; padding: 2rem 1.25rem 4rem; }
+      .topbar-nav { display: none; }
+      .param { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <a href="index.html" class="logo">
+    <span class="eye-dot"></span>
+    SECUREYE
+  </a>
+  <div class="topbar-sep"></div>
+  <span class="topbar-label">Docs</span>
+  <nav class="topbar-nav">
+    <a href="index.html">Home</a>
+    <a href="verify.html">Demo</a>
+    <a href="https://github.com/secureye/secureye">GitHub</a>
+    <a href="#" class="topbar-cta">Get sitekey →</a>
+  </nav>
+</div>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+
+    <div class="nav-group">
+      <div class="nav-group-label">Getting started</div>
+      <a href="#overview"     class="nav-link active"><span class="dot"></span> Overview</a>
+      <a href="#quickstart"   class="nav-link"><span class="dot"></span> Quickstart</a>
+      <a href="#how-it-works" class="nav-link"><span class="dot"></span> How it works</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-label">Integration</div>
+      <a href="#widget"       class="nav-link"><span class="dot"></span> HTML widget</a>
+      <a href="#js-api"       class="nav-link"><span class="dot"></span> JavaScript API</a>
+      <a href="#server"       class="nav-link"><span class="dot"></span> Server validation</a>
+      <a href="#libraries"    class="nav-link"><span class="dot"></span> Server libraries</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-label">Reference</div>
+      <a href="#widget-attrs" class="nav-link"><span class="dot"></span> Widget attributes</a>
+      <a href="#api-ref"      class="nav-link"><span class="dot"></span> API reference</a>
+      <a href="#errors"       class="nav-link"><span class="dot"></span> Error codes</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-label">Guides</div>
+      <a href="#modes"        class="nav-link"><span class="dot"></span> Verification modes</a>
+      <a href="#privacy"      class="nav-link"><span class="dot"></span> Privacy architecture</a>
+      <a href="#self-hosting" class="nav-link"><span class="dot"></span> Self-hosting</a>
+    </div>
+
+  </aside>
+
+  <!-- CONTENT -->
+  <main class="content">
+
+    <!-- OVERVIEW -->
+    <div class="doc-hero" id="overview">
+      <span class="section-badge">Documentation</span>
+      <h1>Secureye developer reference</h1>
+      <div class="time-badge"><span class="time-dot"></span> Integration takes under 10 minutes</div>
+      <p>
+        Secureye is a drop-in replacement for CAPTCHA. It verifies human presence using
+        eye liveness (camera) or keystroke rhythm (keyboard) — all processed client-side.
+        No biometric data ever leaves the user's device.
+      </p>
+    </div>
+
+    <!-- QUICKSTART -->
+    <div class="doc-section" id="quickstart">
+      <h2>Quickstart</h2>
+      <p>Three steps: get a sitekey, embed the widget, validate the token server-side.</p>
+
+      <ul class="steps-list">
+
+        <li class="step-item">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <h3>Get a sitekey</h3>
+            <p><a href="#">Register at secureye.io →</a> Free tier gives you 10,000 verifications per month. No credit card needed. You'll receive two keys: a public <strong>sitekey</strong> for the frontend and a private <strong>secret key</strong> for your backend.</p>
+          </div>
+        </li>
+
+        <li class="step-item">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <h3>Embed the widget</h3>
+            <p>Add the script to your <code>&lt;head&gt;</code> and place the widget div wherever you need verification — login forms, signup, checkout, comment boxes.</p>
+
+            <div class="code-wrap">
+              <div class="code-header">
+                <span class="code-lang">HTML</span>
+                <button class="copy-btn" onclick="copyCode(this)">copy</button>
+              </div>
+              <pre><span class="cm">&lt;!-- Load Secureye once, in &lt;head&gt; --&gt;</span>
+<span class="tg">&lt;script</span> <span class="at">src</span>=<span class="str">"https://cdn.secureye.io/secureye.js"</span> <span class="at">defer</span><span class="tg">&gt;&lt;/script&gt;</span>
+
+<span class="cm">&lt;!-- Place the widget in your form --&gt;</span>
+<span class="tg">&lt;div</span>
+  <span class="at">class</span>=<span class="str">"secureye-widget"</span>
+  <span class="at">data-sitekey</span>=<span class="str">"YOUR_SITEKEY"</span>
+  <span class="at">data-callback</span>=<span class="str">"onVerified"</span>
+<span class="tg">&gt;&lt;/div&gt;</span>
+
+<span class="tg">&lt;script&gt;</span>
+  <span class="kw">function</span> <span class="fn">onVerified</span>(token) {
+    <span class="cm">// send token to your backend with the form</span>
+    document.<span class="fn">getElementById</span>(<span class="str">'token-field'</span>).value = token;
+    document.<span class="fn">getElementById</span>(<span class="str">'my-form'</span>).<span class="fn">submit</span>();
+  }
+<span class="tg">&lt;/script&gt;</span></pre>
+            </div>
+          </div>
+        </li>
+
+        <li class="step-item">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <h3>Validate server-side</h3>
+            <p>When your backend receives the form, POST the token to our API before processing. <strong>Never trust the token without server-side validation</strong> — client-side verification alone is not enough.</p>
+
+            <div class="code-wrap">
+              <div class="code-header">
+                <span class="code-lang">Node.js</span>
+                <button class="copy-btn" onclick="copyCode(this)">copy</button>
+              </div>
+              <pre><span class="kw">const</span> res = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'https://api.secureye.io/v1/verify'</span>, {
+  method: <span class="str">'POST'</span>,
+  headers: { <span class="str">'Content-Type'</span>: <span class="str">'application/json'</span> },
+  body: <span class="nm">JSON</span>.<span class="fn">stringify</span>({
+    secret: process.env.<span class="nm">SECUREYE_SECRET</span>,
+    token:  req.body.secureye_token,
+  }),
+});
+
+<span class="kw">const</span> { success } = <span class="kw">await</span> res.<span class="fn">json</span>();
+<span class="kw">if</span> (!success) <span class="kw">return</span> res.<span class="fn">status</span>(<span class="nm">400</span>).<span class="fn">json</span>({ error: <span class="str">'Verification failed'</span> });</pre>
+            </div>
+
+            <div class="callout tip">
+              <span class="callout-icon">✓</span>
+              <p>Tokens are single-use and expire in <strong>60 seconds</strong>. Your validation endpoint should be called immediately after form submission — don't cache or reuse tokens.</p>
+            </div>
+          </div>
+        </li>
+
+      </ul>
+    </div>
+
+    <!-- HOW IT WORKS -->
+    <div class="doc-section" id="how-it-works">
+      <h2>How it works</h2>
+      <p>Understanding the verification flow helps you integrate securely and handle edge cases correctly.</p>
+
+      <h3>Verification flow</h3>
+      <p>When a user encounters the Secureye widget:</p>
+      <ol style="padding-left:1.5rem; color: var(--text-muted); display:flex; flex-direction:column; gap:0.5rem; margin: 1rem 0;">
+        <li><strong>Mode detection</strong> — The widget checks for camera availability via <code>navigator.mediaDevices.enumerateDevices()</code>. Camera present → eye mode. Keyboard only → keystroke mode. The user can always switch manually.</li>
+        <li><strong>On-device processing</strong> — A lightweight WebAssembly model analyzes the camera feed or keystroke timings locally. The raw data never leaves the browser.</li>
+        <li><strong>Token issuance</strong> — On success, Secureye servers issue a signed JWT bound to your sitekey and the current timestamp.</li>
+        <li><strong>Server validation</strong> — Your backend sends the token to <code>/v1/verify</code>. We verify the signature, check it hasn't been used, and confirm it's within 60 seconds of issuance.</li>
+        <li><strong>Forget</strong> — The token is marked as used. No user data is retained. The session is complete.</li>
+      </ol>
+
+      <div class="callout info">
+        <span class="callout-icon">ℹ</span>
+        <p>The Secureye widget loads inside an <code>iframe</code> with <code>allow="camera"</code>. Camera permission is requested from the iframe origin (<code>secureye.io</code>), not your domain — so users see a single consistent permission prompt across all sites using Secureye.</p>
+      </div>
+    </div>
+
+    <!-- WIDGET -->
+    <div class="doc-section" id="widget">
+      <h2>HTML widget</h2>
+      <p>The widget is a <code>&lt;div&gt;</code> that the Secureye script enhances into a full verification UI. It mounts an iframe that handles camera permissions, verification logic, and the visual interface.</p>
+
+      <div class="code-wrap">
+        <div class="code-header">
+          <span class="code-lang">HTML</span>
+          <button class="copy-btn" onclick="copyCode(this)">copy</button>
+        </div>
+        <pre><span class="tg">&lt;div</span>
+  <span class="at">class</span>=<span class="str">"secureye-widget"</span>
+  <span class="at">data-sitekey</span>=<span class="str">"YOUR_SITEKEY"</span>
+  <span class="at">data-callback</span>=<span class="str">"onVerified"</span>
+  <span class="at">data-error-callback</span>=<span class="str">"onError"</span>
+  <span class="at">data-theme</span>=<span class="str">"dark"</span>
+  <span class="at">data-mode</span>=<span class="str">"auto"</span>
+<span class="tg">&gt;&lt;/div&gt;</span></pre>
+      </div>
+    </div>
+
+    <!-- WIDGET ATTRS -->
+    <div class="doc-section" id="widget-attrs">
+      <h2>Widget attributes</h2>
+
+      <div class="param-list">
+        <div class="param">
+          <div>
+            <div class="param-name">data-sitekey <span class="req">required</span></div>
+            <div class="param-type">string</div>
+          </div>
+          <div class="param-desc">Your public sitekey from the Secureye dashboard. This is safe to include in client-side code — it identifies your site but cannot be used to validate tokens.</div>
+        </div>
+        <div class="param">
+          <div>
+            <div class="param-name">data-callback <span class="opt">optional</span></div>
+            <div class="param-type">string (function name)</div>
+          </div>
+          <div class="param-desc">Name of a global function to call when verification succeeds. Receives the token string as its only argument. If omitted, listen for the <code>secureye:verified</code> event instead.</div>
+        </div>
+        <div class="param">
+          <div>
+            <div class="param-name">data-error-callback <span class="opt">optional</span></div>
+            <div class="param-type">string (function name)</div>
+          </div>
+          <div class="param-desc">Called when verification fails or the user denies camera permission. Receives an error object <code>{ code, message }</code>.</div>
+        </div>
+        <div class="param">
+          <div>
+            <div class="param-name">data-theme <span class="opt">optional</span></div>
+            <div class="param-type">"dark" | "light"</div>
+          </div>
+          <div class="param-desc">Widget color scheme. Defaults to <code>"dark"</code>. Use <code>"light"</code> for sites with light backgrounds.</div>
+        </div>
+        <div class="param">
+          <div>
+            <div class="param-name">data-mode <span class="opt">optional</span></div>
+            <div class="param-type">"auto" | "eye" | "key"</div>
+          </div>
+          <div class="param-desc">Force a specific verification mode. <code>"auto"</code> (default) detects camera availability and picks the best mode. Force <code>"key"</code> if you want keystroke-only (e.g. for accessibility).</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- JS API -->
+    <div class="doc-section" id="js-api">
+      <h2>JavaScript API</h2>
+      <p>For programmatic control — useful for single-page apps, custom form flows, or when you need to trigger verification without a visible widget.</p>
+
+      <div class="code-wrap">
+        <div class="code-header">
+          <span class="code-lang">JavaScript</span>
+          <button class="copy-btn" onclick="copyCode(this)">copy</button>
+        </div>
+        <pre><span class="cm">// Trigger verification manually</span>
+<span class="nm">Secureye</span>.<span class="fn">execute</span>(<span class="str">'YOUR_SITEKEY'</span>, {
+  callback: <span class="fn">onVerified</span>,
+  errorCallback: <span class="fn">onError</span>,
+  theme: <span class="str">'dark'</span>,
+  mode: <span class="str">'auto'</span>,
+});
+
+<span class="cm">// Reset the widget (e.g. after a failed form submission)</span>
+<span class="nm">Secureye</span>.<span class="fn">reset</span>();
+
+<span class="cm">// Listen via DOM events instead of callbacks</span>
+document.<span class="fn">querySelector</span>(<span class="str">'.secureye-widget'</span>)
+  .<span class="fn">addEventListener</span>(<span class="str">'secureye:verified'</span>, (e) => {
+    console.<span class="fn">log</span>(e.detail.token);
+  });
+
+document.<span class="fn">querySelector</span>(<span class="str">'.secureye-widget'</span>)
+  .<span class="fn">addEventListener</span>(<span class="str">'secureye:error'</span>, (e) => {
+    console.<span class="fn">error</span>(e.detail.code, e.detail.message);
+  });</pre>
+      </div>
+    </div>
+
+    <!-- SERVER VALIDATION -->
+    <div class="doc-section" id="server">
+      <h2>Server validation</h2>
+      <p>Always validate tokens on your backend before processing a request. A token on its own is not proof — you need to confirm it was issued by Secureye servers and hasn't been used.</p>
+
+      <h3>Endpoint</h3>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">HTTP</span></div>
+        <pre>POST https://api.secureye.io/v1/verify
+Content-Type: application/json</pre>
+      </div>
+
+      <h3>Request body</h3>
+      <div class="param-list">
+        <div class="param">
+          <div>
+            <div class="param-name">secret <span class="req">required</span></div>
+            <div class="param-type">string</div>
+          </div>
+          <div class="param-desc">Your secret key from the dashboard. Never expose this in client-side code.</div>
+        </div>
+        <div class="param">
+          <div>
+            <div class="param-name">token <span class="req">required</span></div>
+            <div class="param-type">string</div>
+          </div>
+          <div class="param-desc">The token received from the client widget callback.</div>
+        </div>
+      </div>
+
+      <h3>Success response</h3>
+      <span class="resp-badge ok">200 OK</span>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">JSON</span></div>
+        <pre>{
+  <span class="at">"success"</span>:    <span class="kw">true</span>,
+  <span class="at">"mode"</span>:       <span class="str">"eye"</span>,         <span class="cm">// "eye" or "key"</span>
+  <span class="at">"issued_at"</span>:  <span class="str">"2025-11-01T14:23:01Z"</span>,
+  <span class="at">"hostname"</span>:   <span class="str">"yoursite.com"</span>
+}</pre>
+      </div>
+
+      <h3>Failure response</h3>
+      <span class="resp-badge err">200 OK</span>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">JSON</span></div>
+        <pre>{
+  <span class="at">"success"</span>:      <span class="kw">false</span>,
+  <span class="at">"error-codes"</span>: [<span class="str">"token-expired"</span>]
+}</pre>
+      </div>
+
+      <div class="callout warning">
+        <span class="callout-icon">⚠</span>
+        <p>The API always returns <strong>200 OK</strong> — check the <code>success</code> field, not the HTTP status code. Network errors or 5xx responses should be treated as verification failure.</p>
+      </div>
+    </div>
+
+    <!-- LIBRARIES -->
+    <div class="doc-section" id="libraries">
+      <h2>Server libraries</h2>
+      <p>Official libraries handle token validation, error handling, and key management for common backends.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Language</th><th>Package</th><th>Install</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Node.js</td><td><code>secureye-node</code></td><td><code>npm i secureye-node</code></td></tr>
+            <tr><td>Python</td><td><code>secureye</code></td><td><code>pip install secureye</code></td></tr>
+            <tr><td>PHP</td><td><code>secureye/secureye-php</code></td><td><code>composer require secureye/secureye-php</code></td></tr>
+            <tr><td>Go</td><td><code>secureye-go</code></td><td><code>go get github.com/secureye/secureye-go</code></td></tr>
+            <tr><td>Ruby</td><td><code>secureye</code></td><td><code>gem install secureye</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Node.js</h3>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">JavaScript</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre><span class="kw">import</span> { Secureye } <span class="kw">from</span> <span class="str">'secureye-node'</span>;
+
+<span class="kw">const</span> secureye = <span class="kw">new</span> <span class="fn">Secureye</span>({ secret: process.env.<span class="nm">SECUREYE_SECRET</span> });
+
+<span class="cm">// In your route handler:</span>
+<span class="kw">const</span> result = <span class="kw">await</span> secureye.<span class="fn">verify</span>(req.body.secureye_token);
+<span class="kw">if</span> (!result.success) <span class="kw">throw new</span> <span class="fn">Error</span>(<span class="str">'Human verification failed'</span>);</pre>
+      </div>
+
+      <h3>Python</h3>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">Python</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre><span class="kw">from</span> secureye <span class="kw">import</span> Secureye
+
+client = <span class="fn">Secureye</span>(secret=os.environ[<span class="str">"SECUREYE_SECRET"</span>])
+
+result = client.<span class="fn">verify</span>(request.form[<span class="str">"secureye_token"</span>])
+<span class="kw">if not</span> result.success:
+    <span class="kw">raise</span> <span class="fn">ValueError</span>(<span class="str">"Human verification failed"</span>)</pre>
+      </div>
+    </div>
+
+    <!-- API REFERENCE -->
+    <div class="doc-section" id="api-ref">
+      <h2>API reference</h2>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Endpoint</th><th>Method</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td>/v1/verify</td><td>POST</td><td>Validate a user token</td></tr>
+            <tr><td>/v1/keys</td><td>GET</td><td>List your sitekeys</td></tr>
+            <tr><td>/v1/keys</td><td>POST</td><td>Create a new sitekey</td></tr>
+            <tr><td>/v1/usage</td><td>GET</td><td>Verification count this billing period</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>All API requests require your secret key as a Bearer token:</p>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">HTTP</span></div>
+        <pre>Authorization: Bearer YOUR_SECRET_KEY</pre>
+      </div>
+    </div>
+
+    <!-- ERRORS -->
+    <div class="doc-section" id="errors">
+      <h2>Error codes</h2>
+      <p>When <code>success</code> is <code>false</code>, the <code>error-codes</code> array contains one or more of:</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>missing-input-secret</td><td>The secret key parameter is missing</td></tr>
+            <tr><td>invalid-input-secret</td><td>The secret key is invalid or doesn't match your account</td></tr>
+            <tr><td>missing-input-token</td><td>The token parameter is missing</td></tr>
+            <tr><td>invalid-input-token</td><td>The token is malformed</td></tr>
+            <tr><td>token-expired</td><td>The token is older than 60 seconds</td></tr>
+            <tr><td>token-already-used</td><td>This token has already been validated (single-use)</td></tr>
+            <tr><td>hostname-mismatch</td><td>Token was issued for a different domain than your sitekey</td></tr>
+            <tr><td>bad-request</td><td>The request body is malformed</td></tr>
+            <tr><td>internal-error</td><td>Something went wrong on our end — retry once, then contact support</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- MODES -->
+    <div class="doc-section" id="modes">
+      <h2>Verification modes</h2>
+
+      <h3>Eye mode (camera)</h3>
+      <p>The default on any device with a front-facing camera. A lightweight liveness detection model runs in WebAssembly inside the browser. It checks for:</p>
+      <ul style="padding-left:1.5rem; color:var(--text-muted); display:flex; flex-direction:column; gap:0.4rem; margin: 0.75rem 0;">
+        <li>Live face presence (not a photo or screen replay)</li>
+        <li>Natural eye movement and blinking</li>
+        <li>Depth cues that defeat flat image spoofing</li>
+      </ul>
+      <p>The camera feed is processed frame-by-frame in memory and immediately discarded. No frames are stored, buffered, or transmitted.</p>
+
+      <h3>Keystroke mode (keyboard)</h3>
+      <p>The fallback for devices without a camera, or for users who prefer not to use their camera. The user types a randomly selected short phrase. The widget measures:</p>
+      <ul style="padding-left:1.5rem; color:var(--text-muted); display:flex; flex-direction:column; gap:0.4rem; margin: 0.75rem 0;">
+        <li><strong>Dwell time</strong> — how long each key is held</li>
+        <li><strong>Flight time</strong> — the gap between releasing one key and pressing the next</li>
+        <li><strong>Rhythm variance</strong> — humans type in organic bursts; bots are too consistent</li>
+      </ul>
+
+      <div class="callout tip">
+        <span class="callout-icon">✓</span>
+        <p>To force keystroke mode for all users (e.g. for accessibility or privacy-conscious audiences), set <code>data-mode="key"</code> on the widget.</p>
+      </div>
+    </div>
+
+    <!-- PRIVACY -->
+    <div class="doc-section" id="privacy">
+      <h2>Privacy architecture</h2>
+      <p>Secureye is designed so that storing biometric data is architecturally impossible, not just a policy choice.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Data type</th><th>What happens to it</th></tr></thead>
+          <tbody>
+            <tr><td>Camera feed</td><td>Processed frame-by-frame in WebAssembly. Never buffered, never transmitted.</td></tr>
+            <tr><td>Keystroke timings</td><td>Computed in JS memory, used to generate a pass/fail signal, then discarded.</td></tr>
+            <tr><td>Verification token</td><td>A signed JWT with no user data. Contains: sitekey, timestamp, mode. Expires in 60s.</td></tr>
+            <tr><td>IP address</td><td>Logged for rate-limiting only, purged after 24 hours.</td></tr>
+            <tr><td>User identity</td><td>We have no concept of a user. Each verification is stateless and independent.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>The client-side verification code is open source. You can audit exactly what runs in your users' browsers before deploying.</p>
+    </div>
+
+    <!-- SELF HOSTING -->
+    <div class="doc-section" id="self-hosting">
+      <h2>Self-hosting</h2>
+      <p>The widget and verification UI are plain static files. You can serve <code>secureye.js</code> and <code>verify.html</code> from your own domain.</p>
+
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre>git clone https://github.com/secureye/secureye
+cd secureye
+<span class="cm"># serve with any static file server</span>
+npx serve .</pre>
+      </div>
+
+      <p>Token <strong>signing</strong> requires a backend with your private key. When self-hosting, you run your own signing service and point <code>secureye.js</code> at it. See the <a href="#">self-hosting guide</a> for the full setup.</p>
+
+      <div class="callout warning">
+        <span class="callout-icon">⚠</span>
+        <p>Self-hosted deployments bypass Secureye's rate limiting and abuse monitoring. You're responsible for preventing token replay and brute-force attacks on your signing endpoint.</p>
+      </div>
+    </div>
+
+  </main>
+
+</div>
+
+<script>
+  function copyCode(btn) {
+    const pre = btn.closest('.code-wrap').querySelector('pre');
+    const text = pre.innerText;
+    navigator.clipboard.writeText(text).then(() => {
+      btn.textContent = 'copied!';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1800);
+    });
+  }
+
+  /* highlight active nav link on scroll */
+  const sections = document.querySelectorAll('[id]');
+  const navLinks = document.querySelectorAll('.nav-link');
+
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        navLinks.forEach(l => l.classList.remove('active'));
+        const active = document.querySelector(`.nav-link[href="#${e.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+
+  sections.forEach(s => obs.observe(s));
+</script>
+
+</body>
+</html>
