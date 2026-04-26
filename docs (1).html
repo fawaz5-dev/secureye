@@ -564,7 +564,7 @@
     <a href="index.html">Home</a>
     <a href="verify.html">Demo</a>
     <a href="https://github.com/secureye/secureye">GitHub</a>
-    <a href="#" class="topbar-cta">Get sitekey →</a>
+    <a href="verify.html" class="topbar-cta">Try demo →</a>
   </nav>
 </div>
 
@@ -585,7 +585,7 @@
       <a href="#widget"       class="nav-link"><span class="dot"></span> HTML widget</a>
       <a href="#js-api"       class="nav-link"><span class="dot"></span> JavaScript API</a>
       <a href="#server"       class="nav-link"><span class="dot"></span> Server validation</a>
-      <a href="#libraries"    class="nav-link"><span class="dot"></span> Server libraries</a>
+      <a href="#libraries"    class="nav-link"><span class="dot"></span> Examples</a>
     </div>
 
     <div class="nav-group">
@@ -622,20 +622,12 @@
     <!-- QUICKSTART -->
     <div class="doc-section" id="quickstart">
       <h2>Quickstart</h2>
-      <p>Three steps: get a sitekey, embed the widget, validate the token server-side.</p>
+      <p>Two steps: embed the widget, validate the token. No registration. No API keys. No account.</p>
 
       <ul class="steps-list">
 
         <li class="step-item">
           <div class="step-num">1</div>
-          <div class="step-body">
-            <h3>Get a sitekey</h3>
-            <p><a href="#">Register at secureye.io →</a> Free tier gives you 10,000 verifications per month. No credit card needed. You'll receive two keys: a public <strong>sitekey</strong> for the frontend and a private <strong>secret key</strong> for your backend.</p>
-          </div>
-        </li>
-
-        <li class="step-item">
-          <div class="step-num">2</div>
           <div class="step-body">
             <h3>Embed the widget</h3>
             <p>Add the script to your <code>&lt;head&gt;</code> and place the widget div wherever you need verification — login forms, signup, checkout, comment boxes.</p>
@@ -648,10 +640,9 @@
               <pre><span class="cm">&lt;!-- Load Secureye once, in &lt;head&gt; --&gt;</span>
 <span class="tg">&lt;script</span> <span class="at">src</span>=<span class="str">"https://cdn.secureye.io/secureye.js"</span> <span class="at">defer</span><span class="tg">&gt;&lt;/script&gt;</span>
 
-<span class="cm">&lt;!-- Place the widget in your form --&gt;</span>
+<span class="cm">&lt;!-- Place the widget in your form. No sitekey needed. --&gt;</span>
 <span class="tg">&lt;div</span>
   <span class="at">class</span>=<span class="str">"secureye-widget"</span>
-  <span class="at">data-sitekey</span>=<span class="str">"YOUR_SITEKEY"</span>
   <span class="at">data-callback</span>=<span class="str">"onVerified"</span>
 <span class="tg">&gt;&lt;/div&gt;</span>
 
@@ -667,7 +658,7 @@
         </li>
 
         <li class="step-item">
-          <div class="step-num">3</div>
+          <div class="step-num">2</div>
           <div class="step-body">
             <h3>Validate server-side</h3>
             <p>When your backend receives the form, POST the token to our API before processing. <strong>Never trust the token without server-side validation</strong> — client-side verification alone is not enough.</p>
@@ -681,8 +672,7 @@
   method: <span class="str">'POST'</span>,
   headers: { <span class="str">'Content-Type'</span>: <span class="str">'application/json'</span> },
   body: <span class="nm">JSON</span>.<span class="fn">stringify</span>({
-    secret: process.env.<span class="nm">SECUREYE_SECRET</span>,
-    token:  req.body.secureye_token,
+    token: req.body.secureye_token,
   }),
 });
 
@@ -692,7 +682,7 @@
 
             <div class="callout tip">
               <span class="callout-icon">✓</span>
-              <p>Tokens are single-use and expire in <strong>60 seconds</strong>. Your validation endpoint should be called immediately after form submission — don't cache or reuse tokens.</p>
+              <p>Tokens are single-use and expire in <strong>60 seconds</strong>. Validate immediately after form submission — don't cache or reuse tokens.</p>
             </div>
           </div>
         </li>
@@ -710,7 +700,7 @@
       <ol style="padding-left:1.5rem; color: var(--text-muted); display:flex; flex-direction:column; gap:0.5rem; margin: 1rem 0;">
         <li><strong>Mode detection</strong> — The widget checks for camera availability via <code>navigator.mediaDevices.enumerateDevices()</code>. Camera present → eye mode. Keyboard only → keystroke mode. The user can always switch manually.</li>
         <li><strong>On-device processing</strong> — A lightweight WebAssembly model analyzes the camera feed or keystroke timings locally. The raw data never leaves the browser.</li>
-        <li><strong>Token issuance</strong> — On success, Secureye servers issue a signed JWT bound to your sitekey and the current timestamp.</li>
+        <li><strong>Token issuance</strong> — On success, Secureye servers issue a signed JWT containing the mode, hostname, and timestamp. No sitekey, no user identity.</li>
         <li><strong>Server validation</strong> — Your backend sends the token to <code>/v1/verify</code>. We verify the signature, check it hasn't been used, and confirm it's within 60 seconds of issuance.</li>
         <li><strong>Forget</strong> — The token is marked as used. No user data is retained. The session is complete.</li>
       </ol>
@@ -733,7 +723,6 @@
         </div>
         <pre><span class="tg">&lt;div</span>
   <span class="at">class</span>=<span class="str">"secureye-widget"</span>
-  <span class="at">data-sitekey</span>=<span class="str">"YOUR_SITEKEY"</span>
   <span class="at">data-callback</span>=<span class="str">"onVerified"</span>
   <span class="at">data-error-callback</span>=<span class="str">"onError"</span>
   <span class="at">data-theme</span>=<span class="str">"dark"</span>
@@ -749,17 +738,10 @@
       <div class="param-list">
         <div class="param">
           <div>
-            <div class="param-name">data-sitekey <span class="req">required</span></div>
-            <div class="param-type">string</div>
-          </div>
-          <div class="param-desc">Your public sitekey from the Secureye dashboard. This is safe to include in client-side code — it identifies your site but cannot be used to validate tokens.</div>
-        </div>
-        <div class="param">
-          <div>
             <div class="param-name">data-callback <span class="opt">optional</span></div>
             <div class="param-type">string (function name)</div>
           </div>
-          <div class="param-desc">Name of a global function to call when verification succeeds. Receives the token string as its only argument. If omitted, listen for the <code>secureye:verified</code> event instead.</div>
+          <div class="param-desc">Name of a global function to call when verification succeeds. Receives the token string as its only argument. If omitted, listen for the <code>secureye:verified</code> DOM event instead.</div>
         </div>
         <div class="param">
           <div>
@@ -780,7 +762,7 @@
             <div class="param-name">data-mode <span class="opt">optional</span></div>
             <div class="param-type">"auto" | "eye" | "key"</div>
           </div>
-          <div class="param-desc">Force a specific verification mode. <code>"auto"</code> (default) detects camera availability and picks the best mode. Force <code>"key"</code> if you want keystroke-only (e.g. for accessibility).</div>
+          <div class="param-desc">Force a specific verification mode. <code>"auto"</code> (default) detects camera availability and picks the best mode. Force <code>"key"</code> for keystroke-only (e.g. for accessibility or camera-averse users).</div>
         </div>
       </div>
     </div>
@@ -795,18 +777,7 @@
           <span class="code-lang">JavaScript</span>
           <button class="copy-btn" onclick="copyCode(this)">copy</button>
         </div>
-        <pre><span class="cm">// Trigger verification manually</span>
-<span class="nm">Secureye</span>.<span class="fn">execute</span>(<span class="str">'YOUR_SITEKEY'</span>, {
-  callback: <span class="fn">onVerified</span>,
-  errorCallback: <span class="fn">onError</span>,
-  theme: <span class="str">'dark'</span>,
-  mode: <span class="str">'auto'</span>,
-});
-
-<span class="cm">// Reset the widget (e.g. after a failed form submission)</span>
-<span class="nm">Secureye</span>.<span class="fn">reset</span>();
-
-<span class="cm">// Listen via DOM events instead of callbacks</span>
+        <pre><span class="cm">// Listen via DOM events instead of callbacks</span>
 document.<span class="fn">querySelector</span>(<span class="str">'.secureye-widget'</span>)
   .<span class="fn">addEventListener</span>(<span class="str">'secureye:verified'</span>, (e) => {
     console.<span class="fn">log</span>(e.detail.token);
@@ -835,17 +806,10 @@ Content-Type: application/json</pre>
       <div class="param-list">
         <div class="param">
           <div>
-            <div class="param-name">secret <span class="req">required</span></div>
-            <div class="param-type">string</div>
-          </div>
-          <div class="param-desc">Your secret key from the dashboard. Never expose this in client-side code.</div>
-        </div>
-        <div class="param">
-          <div>
             <div class="param-name">token <span class="req">required</span></div>
             <div class="param-type">string</div>
           </div>
-          <div class="param-desc">The token received from the client widget callback.</div>
+          <div class="param-desc">The token received from the client widget callback. Single-use, expires 60 seconds after issuance.</div>
         </div>
       </div>
 
@@ -879,46 +843,52 @@ Content-Type: application/json</pre>
 
     <!-- LIBRARIES -->
     <div class="doc-section" id="libraries">
-      <h2>Server libraries</h2>
-      <p>Official libraries handle token validation, error handling, and key management for common backends.</p>
+      <h2>Server-side examples</h2>
+      <p>No official libraries yet — the API is a single POST request, so a one-liner in any language is all you need.</p>
 
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr><th>Language</th><th>Package</th><th>Install</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Node.js</td><td><code>secureye-node</code></td><td><code>npm i secureye-node</code></td></tr>
-            <tr><td>Python</td><td><code>secureye</code></td><td><code>pip install secureye</code></td></tr>
-            <tr><td>PHP</td><td><code>secureye/secureye-php</code></td><td><code>composer require secureye/secureye-php</code></td></tr>
-            <tr><td>Go</td><td><code>secureye-go</code></td><td><code>go get github.com/secureye/secureye-go</code></td></tr>
-            <tr><td>Ruby</td><td><code>secureye</code></td><td><code>gem install secureye</code></td></tr>
-          </tbody>
-        </table>
+      <h3>Python</h3>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">Python</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre><span class="kw">import</span> requests
+
+r = requests.<span class="fn">post</span>(<span class="str">"https://api.secureye.io/v1/verify"</span>, json={
+    <span class="str">"token"</span>: request.form[<span class="str">"secureye_token"</span>]
+})
+<span class="kw">if not</span> r.json()[<span class="str">"success"</span>]:
+    <span class="kw">raise</span> <span class="fn">ValueError</span>(<span class="str">"Human verification failed"</span>)</pre>
       </div>
 
       <h3>Node.js</h3>
       <div class="code-wrap">
         <div class="code-header"><span class="code-lang">JavaScript</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre><span class="kw">import</span> { Secureye } <span class="kw">from</span> <span class="str">'secureye-node'</span>;
-
-<span class="kw">const</span> secureye = <span class="kw">new</span> <span class="fn">Secureye</span>({ secret: process.env.<span class="nm">SECUREYE_SECRET</span> });
-
-<span class="cm">// In your route handler:</span>
-<span class="kw">const</span> result = <span class="kw">await</span> secureye.<span class="fn">verify</span>(req.body.secureye_token);
-<span class="kw">if</span> (!result.success) <span class="kw">throw new</span> <span class="fn">Error</span>(<span class="str">'Human verification failed'</span>);</pre>
+        <pre><span class="kw">const</span> res = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">"https://api.secureye.io/v1/verify"</span>, {
+  method: <span class="str">"POST"</span>,
+  headers: { <span class="str">"Content-Type"</span>: <span class="str">"application/json"</span> },
+  body: <span class="nm">JSON</span>.<span class="fn">stringify</span>({ token: req.body.secureye_token }),
+});
+<span class="kw">const</span> { success } = <span class="kw">await</span> res.<span class="fn">json</span>();
+<span class="kw">if</span> (!success) <span class="kw">return</span> res.<span class="fn">status</span>(<span class="nm">400</span>).<span class="fn">send</span>(<span class="str">"Verification failed"</span>);</pre>
       </div>
 
-      <h3>Python</h3>
+      <h3>PHP</h3>
       <div class="code-wrap">
-        <div class="code-header"><span class="code-lang">Python</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre><span class="kw">from</span> secureye <span class="kw">import</span> Secureye
+        <div class="code-header"><span class="code-lang">PHP</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre>$r = json_decode(file_get_contents(<span class="str">"https://api.secureye.io/v1/verify"</span>, false,
+  stream_context_create([<span class="str">"http"</span> => [
+    <span class="str">"method"</span>  => <span class="str">"POST"</span>,
+    <span class="str">"header"</span>  => <span class="str">"Content-Type: application/json"</span>,
+    <span class="str">"content"</span> => json_encode([<span class="str">"token"</span> => $_POST[<span class="str">"secureye_token"</span>]])
+  ]])
+));
+<span class="kw">if</span> (!$r->success) http_response_code(<span class="nm">400</span>);</pre>
+      </div>
 
-client = <span class="fn">Secureye</span>(secret=os.environ[<span class="str">"SECUREYE_SECRET"</span>])
-
-result = client.<span class="fn">verify</span>(request.form[<span class="str">"secureye_token"</span>])
-<span class="kw">if not</span> result.success:
-    <span class="kw">raise</span> <span class="fn">ValueError</span>(<span class="str">"Human verification failed"</span>)</pre>
+      <h3>curl</h3>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre>curl -X POST https://api.secureye.io/v1/verify \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -d <span class="str">'{"token": "your_token_here"}'</span></pre>
       </div>
     </div>
 
@@ -930,19 +900,14 @@ result = client.<span class="fn">verify</span>(request.form[<span class="str">"s
         <table>
           <thead><tr><th>Endpoint</th><th>Method</th><th>Description</th></tr></thead>
           <tbody>
-            <tr><td>/v1/verify</td><td>POST</td><td>Validate a user token</td></tr>
-            <tr><td>/v1/keys</td><td>GET</td><td>List your sitekeys</td></tr>
-            <tr><td>/v1/keys</td><td>POST</td><td>Create a new sitekey</td></tr>
-            <tr><td>/v1/usage</td><td>GET</td><td>Verification count this billing period</td></tr>
+            <tr><td>/v1/issue</td><td>POST</td><td>Issue a signed token after client-side liveness check</td></tr>
+            <tr><td>/v1/verify</td><td>POST</td><td>Validate a token server-side</td></tr>
+            <tr><td>/health</td><td>GET</td><td>Service health check</td></tr>
           </tbody>
         </table>
       </div>
 
-      <p>All API requests require your secret key as a Bearer token:</p>
-      <div class="code-wrap">
-        <div class="code-header"><span class="code-lang">HTTP</span></div>
-        <pre>Authorization: Bearer YOUR_SECRET_KEY</pre>
-      </div>
+      <p>No authentication required. The API is stateless — the token signature is the proof.</p>
     </div>
 
     <!-- ERRORS -->
@@ -954,15 +919,12 @@ result = client.<span class="fn">verify</span>(request.form[<span class="str">"s
         <table>
           <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
           <tbody>
-            <tr><td>missing-input-secret</td><td>The secret key parameter is missing</td></tr>
-            <tr><td>invalid-input-secret</td><td>The secret key is invalid or doesn't match your account</td></tr>
-            <tr><td>missing-input-token</td><td>The token parameter is missing</td></tr>
-            <tr><td>invalid-input-token</td><td>The token is malformed</td></tr>
+            <tr><td>missing-input-token</td><td>The token field is missing from the request body</td></tr>
+            <tr><td>invalid-input-token</td><td>The token is malformed or the signature doesn't match</td></tr>
             <tr><td>token-expired</td><td>The token is older than 60 seconds</td></tr>
             <tr><td>token-already-used</td><td>This token has already been validated (single-use)</td></tr>
-            <tr><td>hostname-mismatch</td><td>Token was issued for a different domain than your sitekey</td></tr>
-            <tr><td>bad-request</td><td>The request body is malformed</td></tr>
-            <tr><td>internal-error</td><td>Something went wrong on our end — retry once, then contact support</td></tr>
+            <tr><td>invalid-mode</td><td>The mode field on /v1/issue was not "eye" or "key"</td></tr>
+            <tr><td>internal-error</td><td>Something went wrong server-side — retry once, then open an issue</td></tr>
           </tbody>
         </table>
       </div>
@@ -1006,8 +968,8 @@ result = client.<span class="fn">verify</span>(request.form[<span class="str">"s
           <tbody>
             <tr><td>Camera feed</td><td>Processed frame-by-frame in WebAssembly. Never buffered, never transmitted.</td></tr>
             <tr><td>Keystroke timings</td><td>Computed in JS memory, used to generate a pass/fail signal, then discarded.</td></tr>
-            <tr><td>Verification token</td><td>A signed JWT with no user data. Contains: sitekey, timestamp, mode. Expires in 60s.</td></tr>
-            <tr><td>IP address</td><td>Logged for rate-limiting only, purged after 24 hours.</td></tr>
+            <tr><td>Verification token</td><td>A signed JWT with no user data. Contains: hostname, mode, timestamp. Expires in 60s.</td></tr>
+            <tr><td>IP address</td><td>Not logged. The backend is stateless — no request data is written anywhere.</td></tr>
             <tr><td>User identity</td><td>We have no concept of a user. Each verification is stateless and independent.</td></tr>
           </tbody>
         </table>

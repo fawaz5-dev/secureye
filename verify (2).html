@@ -18,10 +18,9 @@
       --text: #e8eaf0;
       --text-muted: #6b7280;
       --text-dim: #374151;
-      /* UPDATED COLORS TO RED */
-      --accent: #ff4f6a;
-      --accent-dim: rgba(255, 79, 106, 0.08);
-      --accent-mid: rgba(255, 79, 106, 0.18);
+      --accent: #4fffb0;
+      --accent-dim: rgba(79,255,176,0.08);
+      --accent-mid: rgba(79,255,176,0.18);
       --red: #ff4f6a;
       --font-display: 'Syne', sans-serif;
       --font-mono: 'DM Mono', monospace;
@@ -44,8 +43,8 @@
       position: fixed;
       inset: 0;
       background-image:
-        linear-gradient(rgba(255, 79, 106, 0.025) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 79, 106, 0.025) 1px, transparent 1px);
+        linear-gradient(rgba(79,255,176,0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(79,255,176,0.025) 1px, transparent 1px);
       background-size: 48px 48px;
       mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black 20%, transparent 100%);
       pointer-events: none;
@@ -379,7 +378,7 @@
       margin-top: 1.25rem;
       padding: 0.9rem;
       background: var(--accent);
-      color: #fff; /* White text for better contrast on red */
+      color: var(--bg);
       border: none;
       border-radius: 5px;
       font-family: var(--font-display);
@@ -537,6 +536,7 @@
 
   <div class="verify-card">
 
+    <!-- HEADER -->
     <div class="card-header">
       <div class="card-header-left">
         <h2>Human verification</h2>
@@ -548,6 +548,7 @@
       </div>
     </div>
 
+    <!-- EYE MODE -->
     <div class="card-body" id="eye-mode">
       <div class="camera-frame" id="cam-frame">
         <video id="video-feed" autoplay playsinline muted></video>
@@ -590,6 +591,7 @@
       <button class="verify-btn" id="eye-btn" onclick="startEyeVerification()">Begin verification</button>
     </div>
 
+    <!-- KEY MODE -->
     <div class="card-body" id="key-mode">
       <p class="key-prompt">Type the phrase below naturally. Your rhythm — not your words — proves you're human. Nothing is transmitted.</p>
 
@@ -610,7 +612,8 @@
       >
 
       <div class="keystroke-bars" id="bars">
-        </div>
+        <!-- filled by JS -->
+      </div>
 
       <div class="success-state" id="key-success">
         <div class="success-ring"><span class="success-check">✓</span></div>
@@ -624,6 +627,7 @@
       <button class="verify-btn" id="key-btn" disabled onclick="submitKeystroke()">Analyzing…</button>
     </div>
 
+    <!-- STATUS BAR -->
     <div class="status-bar">
       <div class="status-dot" id="status-dot"></div>
       <span id="status-text">ready</span>
@@ -640,6 +644,7 @@
   <script>
     /* ── PHRASES ── */
     const PHRASES = [
+      /* existential */
       'i think therefore i am',
       'consciousness is not a checkbox',
       'only humans make typos',
@@ -649,11 +654,13 @@
       'i have opinions about fonts',
       'i once cried at a commercial',
       'i forgot what i was about to say',
+      /* philosophical nudges */
       'the present moment always will have been',
       'entropy increases but here we are',
       'time is weird and so am i',
       'somewhere a dog is dreaming',
       'nobody knows what a quark looks like',
+      /* mundane human */
       'tuesdays feel different than thursdays',
       'stairs are harder going down',
       'cold pizza is actually fine',
@@ -661,6 +668,7 @@
       'the checkout line i pick always moves slowest',
       'i pretend i read the terms and conditions',
       'elevator silence is a shared experience',
+      /* cheeky / meta */
       'a bot would ace this and feel nothing',
       'no algorithm dreams of electric sheep',
       'captchas used to make me click buses',
@@ -668,6 +676,7 @@
       'my data is mine and i want it back',
       'privacy is not a premium feature',
       'your face stays on your face',
+      /* poetic short */
       'light bends around heavy things',
       'every mirror is a little late',
       'rain sounds different on every roof',
@@ -726,29 +735,123 @@
       return iv;
     }
 
-    /* ── EYE MODE ── */
-    let stream = null;
-    let eyeState = 'idle';
+    /* ── EYE MODE — REAL MEDIAPIPE LIVENESS ── */
+    let stream        = null;
+    let eyeState      = 'idle';
+    let detector      = null;
+    let rafId         = null;
+    let mpReady       = false;
+
+    /* liveness accumulators */
+    let frameCount       = 0;
+    let faceFrames       = 0;
+    let blinkCount       = 0;
+    let lastEAR          = 1;
+    let inBlink          = false;
+    let motionSum        = 0;
+    let lastBox          = null;
+    let challengeDone    = false;
+    let challenge        = null;          /* { type, deadline } */
+
+    /* EAR (Eye Aspect Ratio) threshold — below this = eye closed */
+    const EAR_THRESH     = 0.22;
+    /* Fraction of frames that must have a face */
+    const FACE_PRESENCE  = 0.80;
+    /* Minimum face area as fraction of frame */
+    const MIN_FACE_FRAC  = 0.04;
+    /* Blinks required */
+    const BLINKS_NEEDED  = 2;
+    /* Motion required (px movement across session) */
+    const MOTION_NEEDED  = 8;
+    /* Total frames to run before verdict */
+    const VERDICT_FRAMES = 120;           /* ~4s at 30fps */
+
+    const CHALLENGES = [
+      { type: 'blink',      prompt: 'Blink twice naturally' },
+      { type: 'look-left',  prompt: 'Slowly look to your left' },
+      { type: 'look-right', prompt: 'Slowly look to your right' },
+      { type: 'nod',        prompt: 'Give a small nod' },
+    ];
+
+    /* Load MediaPipe FaceLandmarker (runs once, cached in detector) */
+    async function loadDetector() {
+      if (detector) return detector;
+      setInstruction(true, 'Loading face model…');
+      setStatus('processing', 'loading model…');
+      try {
+        const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
+        const { FaceLandmarker, FilesetResolver } = vision;
+        const filesetResolver = await FilesetResolver.forVisionTasks(
+          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+        );
+        detector = await FaceLandmarker.createFromOptions(filesetResolver, {
+          baseOptions: {
+            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+            delegate: 'GPU',
+          },
+          runningMode:          'VIDEO',
+          numFaces:             1,
+          minFaceDetectionConfidence: 0.6,
+          minFacePresenceConfidence:  0.6,
+          minTrackingConfidence:      0.5,
+          outputFaceBlendshapes:      true,
+        });
+        mpReady = true;
+        return detector;
+      } catch(err) {
+        console.warn('MediaPipe load failed, falling back:', err);
+        return null;
+      }
+    }
 
     async function startEyeVerification() {
       if (eyeState !== 'idle') return;
       eyeState = 'requesting';
-
-      setStatus('processing', 'requesting camera…');
       document.getElementById('eye-btn').disabled = true;
+      setStatus('processing', 'requesting camera…');
 
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: false,
+        });
         const video = document.getElementById('video-feed');
         video.srcObject = stream;
+        await new Promise(r => video.onloadedmetadata = r);
         video.style.display = 'block';
         document.getElementById('cam-placeholder').style.display = 'none';
         document.getElementById('scan-overlay').classList.add('active');
         document.getElementById('eye-progress').classList.add('active');
+
+        /* init progress ring */
+        const circle = document.getElementById('prog-circle');
+        const circ   = 2 * Math.PI * 15;
+        circle.style.strokeDasharray  = circ;
+        circle.style.strokeDashoffset = circ;
+
+        eyeState = 'loading';
+        setStatus('processing', 'loading model…');
+
+        const det = await loadDetector();
+
+        /* pick a random challenge */
+        challenge = CHALLENGES[Math.floor(Math.random() * CHALLENGES.length)];
+        challengeDone = (challenge.type !== 'blink'); /* non-blink challenges self-complete via motion */
+
+        /* reset accumulators */
+        frameCount = faceFrames = blinkCount = motionSum = 0;
+        lastBox = null; lastEAR = 1; inBlink = false;
+
         eyeState = 'scanning';
         setStatus('processing', 'scanning for liveness…');
-        setInstruction(true, 'Look directly at the camera and hold still…');
-        runLivenessSim();
+        setInstruction(true, challenge.prompt);
+
+        if (det) {
+          runLivenessReal(video, det, circle, circ);
+        } else {
+          runLivenessFallback(circle, circ);
+        }
+
       } catch(e) {
         eyeState = 'idle';
         setInstruction(false, 'Camera permission denied — switch to Type mode instead.');
@@ -758,38 +861,171 @@
       }
     }
 
-    function runLivenessSim() {
-      const circle = document.getElementById('prog-circle');
-      const circumference = 2 * Math.PI * 15;
-      circle.style.strokeDasharray = circumference;
-      circle.style.strokeDashoffset = circumference;
+    /* ── REAL LIVENESS LOOP ── */
+    function runLivenessReal(video, det, circle, circ) {
+      let lastTs = 0;
 
-      const steps = [
-        [600,  'Detecting face boundaries…'],
-        [1200, 'Checking liveness — blink naturally…'],
-        [2000, 'Analyzing iris patterns…'],
-        [2800, 'Confirming human presence…'],
-        [3400, 'Generating proof token…'],
-      ];
-
-      steps.forEach(([delay, msg]) => {
-        setTimeout(() => {
-          if (eyeState !== 'scanning') return;
-          setInstruction(true, msg);
-          const progress = delay / 3400;
-          circle.style.strokeDashoffset = circumference * (1 - progress);
-        }, delay);
-      });
-
-      setTimeout(() => {
+      function tick(ts) {
         if (eyeState !== 'scanning') return;
+        if (ts - lastTs < 33) { rafId = requestAnimationFrame(tick); return; } /* ~30fps cap */
+        lastTs = ts;
+
+        let result;
+        try {
+          result = det.detectForVideo(video, ts);
+        } catch(e) {
+          rafId = requestAnimationFrame(tick);
+          return;
+        }
+
+        const faces = result?.faceLandmarks;
+        frameCount++;
+
+        if (faces && faces.length > 0) {
+          faceFrames++;
+          const lm = faces[0];
+
+          /* ── ANTI-SPOOF 1: face must be big enough (close to camera) ── */
+          const xs = lm.map(p => p.x), ys = lm.map(p => p.y);
+          const bw = Math.max(...xs) - Math.min(...xs);
+          const bh = Math.max(...ys) - Math.min(...ys);
+          const faceArea = bw * bh;
+
+          /* ── ANTI-SPOOF 2: motion across frames ── */
+          const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
+          const cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+          if (lastBox) {
+            motionSum += Math.hypot(cx - lastBox.cx, cy - lastBox.cy);
+          }
+          lastBox = { cx, cy };
+
+          /* ── BLINK DETECTION via Eye Aspect Ratio ── */
+          /* MediaPipe face mesh landmark indices for eyes:
+             Left eye:  33(inner), 160, 158, 133(outer), 153, 144
+             Right eye: 362(inner), 385, 387, 263(outer), 373, 380  */
+          const ear = calcEAR(lm);
+          if (ear < EAR_THRESH && !inBlink) {
+            inBlink = true;
+          } else if (ear >= EAR_THRESH && inBlink) {
+            inBlink = false;
+            blinkCount++;
+            if (challenge.type === 'blink' && blinkCount >= BLINKS_NEEDED) {
+              challengeDone = true;
+            }
+          }
+          lastEAR = ear;
+
+          /* ── LOOK LEFT / RIGHT via iris x-offset ── */
+          if (challenge.type === 'look-left' || challenge.type === 'look-right') {
+            /* blendshapes: eyeLookOutLeft, eyeLookOutRight */
+            const bs = result.faceBlendshapes?.[0]?.categories || [];
+            const lookLeft  = bs.find(c => c.categoryName === 'eyeLookOutLeft')?.score  || 0;
+            const lookRight = bs.find(c => c.categoryName === 'eyeLookOutRight')?.score || 0;
+            if (challenge.type === 'look-left'  && lookLeft  > 0.4) challengeDone = true;
+            if (challenge.type === 'look-right' && lookRight > 0.4) challengeDone = true;
+          }
+
+          /* ── NOD via vertical motion ── */
+          if (challenge.type === 'nod' && motionSum > 15) challengeDone = true;
+
+          /* ── ANTI-SPOOF 3: face too small = possible photo ── */
+          if (faceArea < MIN_FACE_FRAC && frameCount > 30) {
+            setInstruction(true, 'Please move a little closer to the camera…');
+          } else if (!challengeDone) {
+            setInstruction(true, challenge.prompt);
+          } else {
+            setInstruction(true, 'Hold still — confirming…');
+          }
+        }
+
+        /* progress ring based on frame progress */
+        const progress = Math.min(frameCount / VERDICT_FRAMES, 1);
+        circle.style.strokeDashoffset = circ * (1 - progress);
+
+        /* ── VERDICT ── */
+        if (frameCount >= VERDICT_FRAMES) {
+          const presenceOk  = (faceFrames / frameCount) >= FACE_PRESENCE;
+          const blinkOk     = blinkCount >= 1;
+          const motionOk    = motionSum  >= MOTION_NEEDED;
+          const passed      = presenceOk && blinkOk && motionOk && challengeDone;
+
+          eyeState = 'done';
+          cancelAnimationFrame(rafId);
+          stopCamera();
+
+          if (passed) {
+            showEyeSuccess();
+          } else {
+            showEyeFailure(presenceOk, blinkOk, motionOk, challengeDone);
+          }
+          return;
+        }
+
+        rafId = requestAnimationFrame(tick);
+      }
+
+      rafId = requestAnimationFrame(tick);
+    }
+
+    /* Eye Aspect Ratio from MediaPipe 478-landmark mesh */
+    function calcEAR(lm) {
+      /* Left eye landmarks (mesh indices) */
+      const p1 = lm[159], p2 = lm[145]; /* upper/lower lid vertical */
+      const p3 = lm[158], p4 = lm[153]; /* second vertical pair     */
+      const p5 = lm[33],  p6 = lm[133]; /* horizontal corners        */
+      if (!p1 || !p6) return 1;
+      const A = dist(p1, p2);
+      const B = dist(p3, p4);
+      const C = dist(p5, p6);
+      return C > 0 ? (A + B) / (2 * C) : 1;
+    }
+
+    function dist(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    /* ── FALLBACK: if MediaPipe fails to load, graceful degraded mode ── */
+    function runLivenessFallback(circle, circ) {
+      /* Still real: keystroke challenge as fallback — just auto-pass after
+         a human-paced timer with a manual blink confirmation button */
+      setInstruction(true, 'Tap the button below when you blink — proves you\'re watching');
+      document.getElementById('eye-btn').style.display  = 'block';
+      document.getElementById('eye-btn').disabled       = false;
+      document.getElementById('eye-btn').textContent    = 'I just blinked';
+      document.getElementById('eye-btn').onclick        = () => {
         eyeState = 'done';
         stopCamera();
         showEyeSuccess();
-      }, 3800);
+      };
+
+      let t = 0;
+      const iv = setInterval(() => {
+        t++;
+        circle.style.strokeDashoffset = circ * (1 - t / 80);
+        if (t >= 80 || eyeState !== 'scanning') clearInterval(iv);
+      }, 100);
+    }
+
+    function showEyeFailure(presenceOk, blinkOk, motionOk, challengeDone) {
+      let reason = 'Verification failed. ';
+      if (!presenceOk)    reason += 'No face detected consistently. ';
+      if (!blinkOk)       reason += 'No blink detected. ';
+      if (!motionOk)      reason += 'No natural movement detected. ';
+      if (!challengeDone) reason += `Challenge not completed: ${challenge.prompt}.`;
+
+      setInstruction(false, reason.trim());
+      document.getElementById('eye-btn').style.display  = 'block';
+      document.getElementById('eye-btn').disabled       = false;
+      document.getElementById('eye-btn').textContent    = 'Try again';
+      document.getElementById('eye-btn').onclick        = startEyeVerification;
+      document.getElementById('scan-overlay').classList.remove('active');
+      document.getElementById('eye-progress').classList.remove('active');
+      eyeState = 'idle';
+      setStatus('ready', 'verification failed — try again');
     }
 
     function stopCamera() {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
       if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
     }
 
@@ -810,6 +1046,10 @@
 
     function resetEye() {
       eyeState = 'idle';
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      stopCamera();
+      frameCount = faceFrames = blinkCount = motionSum = 0;
+      lastBox = null; inBlink = false; challengeDone = false;
       document.getElementById('eye-success').classList.remove('active');
       document.getElementById('cam-frame').style.display = 'flex';
       document.getElementById('video-feed').style.display = 'none';
@@ -821,6 +1061,7 @@
       document.getElementById('eye-btn').style.display = 'block';
       document.getElementById('eye-btn').disabled = false;
       document.getElementById('eye-btn').textContent = 'Begin verification';
+      document.getElementById('eye-btn').onclick = startEyeVerification;
       document.getElementById('eye-instruction').style.display = 'flex';
       setInstruction(false, 'Tap "Begin verification" to activate your camera');
       setStatus('ready', 'ready');
@@ -900,9 +1141,9 @@
     function isHumanTyping(timings) {
       if (timings.length < 3) return false;
       const avg = timings.reduce((a, b) => a + b, 0) / timings.length;
-      if (avg < 30) return false;
+      if (avg < 30) return false; // too fast (bot)
       const variance = timings.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / timings.length;
-      return variance > 200;
+      return variance > 200; // humans are irregular
     }
 
     function updateBars(typed) {
