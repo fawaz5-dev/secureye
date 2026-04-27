@@ -6,19 +6,6 @@ services:
     runtime: static
     staticPublishPath: ./frontend
     buildCommand: ""
-    routes:
-      - type: rewrite
-        source: /docs
-        destination: /docs.html
-      - type: rewrite
-        source: /verify
-        destination: /verify.html
-      - type: rewrite
-        source: /demo
-        destination: /verify.html
-      - type: redirect
-        source: /
-        destination: /index.html
 
   # ── BACKEND — FastAPI (stateless) ─────────────────────────────────────
   - type: web
