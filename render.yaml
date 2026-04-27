@@ -4,7 +4,6 @@ services:
   - type: web
     name: secureye-frontend
     runtime: static
-    staticPublishPath: ./frontend
     buildCommand: ""
 
   # ── BACKEND — FastAPI (stateless) ─────────────────────────────────────
