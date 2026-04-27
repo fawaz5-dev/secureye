@@ -16,9 +16,6 @@ services:
       - type: rewrite
         source: /demo
         destination: /verify.html
-      - type: rewrite
-        source: /*
-        destination: /index.html
 
   # ── BACKEND — FastAPI (stateless) ─────────────────────────────────────
   - type: web
