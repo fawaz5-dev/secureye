@@ -839,7 +839,8 @@
            Model continues loading in the background during this time.   */
         const video = document.getElementById('video-feed');
         video.srcObject = stream;
-        video.style.display = 'block';    /* show immediately — don't wait for metadata */
+        document.getElementById('cam-frame').style.display = 'flex';  /* unhide container */
+        video.style.display = 'block';
         document.getElementById('cam-placeholder').style.display = 'none';
         document.getElementById('scan-overlay').classList.add('active');
         document.getElementById('eye-progress').classList.add('active');
