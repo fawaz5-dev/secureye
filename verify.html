@@ -852,54 +852,38 @@
         circle.style.strokeDasharray  = circ;
         circle.style.strokeDashoffset = circ;
 
-        eyeState = 'loading';
-
-        /* Use native FaceDetector (instant, no download) to give live feedback
-           while MediaPipe finishes compiling in the background.
-           Poll every 600ms so the user sees their face being tracked.      */
-        if (window.FaceDetector && !mpReady) {
-          try {
-            const nativeDet = new FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
-            setInstruction(true, 'Preparing… position your face in the frame');
-            setStatus('processing', 'preparing…');
-            await new Promise(resolve => {
-              const poll = setInterval(async () => {
-                if (mpReady || eyeState !== 'loading') { clearInterval(poll); resolve(); return; }
-                try {
-                  const bitmap = await createImageBitmap(video);
-                  const faces  = await nativeDet.detect(bitmap);
-                  bitmap.close();
-                  setInstruction(true, faces.length > 0
-                    ? 'Face detected ✓ — almost ready…'
-                    : 'Position your face in the frame…');
-                } catch(e) { clearInterval(poll); resolve(); }
-              }, 600);
-              /* also resolve as soon as model is ready */
-              loadDetector().then(resolve);
-            });
-          } catch(e) { /* native FaceDetector unavailable — just wait */ }
-        }
-
-        /* Model is ready (or native FaceDetector unavailable) — await it */
-        setStatus('processing', 'starting scan…');
-        const det = await loadDetector();
-
-        /* pick a random challenge */
+        /* pick challenge and reset accumulators now, before any waiting */
         challenge = CHALLENGES[Math.floor(Math.random() * CHALLENGES.length)];
-        challengeDone = (challenge.type !== 'blink'); /* non-blink challenges self-complete via motion */
-
-        /* reset accumulators */
         frameCount = faceFrames = blinkCount = headMotion = 0;
         lastHead = null; inBlink = false; noseTipHist = []; challengeDone = false;
 
         eyeState = 'scanning';
-        setStatus('processing', 'scanning for liveness…');
-        setInstruction(true, challenge.prompt);
+        setStatus('processing', 'scanning…');
 
-        if (det) {
+        if (mpReady) {
+          /* Model already loaded (background fetch finished) — go straight in */
+          const det = await loadDetector();
+          setInstruction(true, challenge.prompt);
           runLivenessReal(video, det, circle, circ);
         } else {
+          /* Model still loading — start pixel-diff fallback immediately so
+             user sees activity, then upgrade to full MediaPipe the moment
+             the promise resolves. No waiting, no frozen screen.           */
+          setInstruction(true, 'Blink once when you’re ready — face detection loading…');
           runLivenessFallback(circle, circ);
+
+          /* Upgrade in background — if model finishes before user completes
+             fallback, restart with full liveness automatically.           */
+          loadDetector().then(det => {
+            if (det && eyeState === 'scanning') {
+              cancelAnimationFrame(rafId);
+              frameCount = faceFrames = blinkCount = headMotion = 0;
+              lastHead = null; inBlink = false; noseTipHist = []; challengeDone = false;
+              setInstruction(true, challenge.prompt);
+              setStatus('processing', 'full liveness active');
+              runLivenessReal(video, det, circle, circ);
+            }
+          });
         }
 
       } catch(e) {
