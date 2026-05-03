@@ -18,9 +18,9 @@
       --text: #e8eaf0;
       --text-muted: #6b7280;
       --text-dim: #374151;
-      --accent: #4fffb0;
-      --accent-dim: rgba(79,255,176,0.08);
-      --accent-mid: rgba(79,255,176,0.18);
+      --accent: #ff4f6a;
+      --accent-dim: rgba(255,79,106,0.08);
+      --accent-mid: rgba(255,79,106,0.18);
       --red: #ff4f6a;
       --font-display: 'Syne', sans-serif;
       --font-mono: 'DM Mono', monospace;
@@ -43,8 +43,8 @@
       position: fixed;
       inset: 0;
       background-image:
-        linear-gradient(rgba(79,255,176,0.025) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(79,255,176,0.025) 1px, transparent 1px);
+        linear-gradient(rgba(255,79,106,0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,79,106,0.025) 1px, transparent 1px);
       background-size: 48px 48px;
       mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black 20%, transparent 100%);
       pointer-events: none;
@@ -770,45 +770,55 @@
       { type: 'blink', prompt: 'Blink once, then look straight ahead' },
     ];
 
-    /* Load MediaPipe FaceLandmarker — tries GPU first, falls back to CPU */
+    /* ── MODEL LOADING ─────────────────────────────────────────────────────
+       Strategy: kick off the 30MB download immediately on page load,
+       silently in the background. By the time the user grants camera
+       permission and reads the UI, it's usually done.               */
+    const WASM_PATH  = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+    const MODEL_PATH = '/face_landmarker.task';   /* self-hosted on Render CDN */
+    const BASE_OPTS  = {
+      runningMode: 'VIDEO',
+      numFaces: 1,
+      minFaceDetectionConfidence: 0.5,
+      minFacePresenceConfidence:  0.5,
+      minTrackingConfidence:      0.5,
+      outputFaceBlendshapes:      true,
+    };
+
+    let _detectorPromise = null;
+
+    function warmUpDetector() {
+      /* Fire and forget — starts the download immediately on page load */
+      if (!_detectorPromise) _detectorPromise = _buildDetector();
+    }
+
     async function loadDetector() {
-      if (detector) return detector;
-      setInstruction(true, 'Loading face model…');
-      setStatus('processing', 'loading model…');
+      /* If already loading/loaded, return same promise — never double-fetch */
+      if (!_detectorPromise) _detectorPromise = _buildDetector();
+      return _detectorPromise;
+    }
 
-      const WASM_PATH  = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
-	  const MODEL_PATH = '/face_landmarker.task';
-      const BASE_OPTS  = {
-        runningMode: 'VIDEO',
-        numFaces: 1,
-        minFaceDetectionConfidence: 0.5,
-        minFacePresenceConfidence:  0.5,
-        minTrackingConfidence:      0.5,
-        outputFaceBlendshapes:      true,  /* ← key: we use these instead of raw EAR */
-      };
-
+    async function _buildDetector() {
       try {
         const { FaceLandmarker, FilesetResolver } = await import(
           'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs'
         );
         const fs = await FilesetResolver.forVisionTasks(WASM_PATH);
-
-        /* Try GPU first (faster), then CPU (more compatible) */
         for (const delegate of ['GPU', 'CPU']) {
           try {
-            detector = await FaceLandmarker.createFromOptions(fs, {
+            const det = await FaceLandmarker.createFromOptions(fs, {
               baseOptions: { modelAssetPath: MODEL_PATH, delegate },
               ...BASE_OPTS,
             });
             mpReady = true;
-            console.info('MediaPipe loaded on', delegate);
-            return detector;
+            console.info('MediaPipe ready on', delegate);
+            return det;
           } catch (e) {
             console.warn(`MediaPipe ${delegate} failed, trying next…`, e);
           }
         }
       } catch (err) {
-        console.warn('MediaPipe failed to load entirely, using fallback:', err);
+        console.warn('MediaPipe failed to load, using pixel-diff fallback:', err);
       }
       return null;
     }
@@ -839,8 +849,26 @@
         circle.style.strokeDashoffset = circ;
 
         eyeState = 'loading';
-        setStatus('processing', 'loading model…');
 
+        /* Show native face presence feedback while MediaPipe finishes loading.
+           Native FaceDetector (Chrome/Edge) is instant — zero download.
+           If unavailable we just skip straight to waiting for MediaPipe.   */
+        let nativeFaceOk = false;
+        if (window.FaceDetector) {
+          try {
+            const nativeDet = new FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
+            const bitmap = await createImageBitmap(video);
+            const faces  = await nativeDet.detect(bitmap);
+            bitmap.close();
+            nativeFaceOk = faces.length > 0;
+            setInstruction(true, nativeFaceOk
+              ? 'Face detected ✓ — preparing liveness check…'
+              : 'Position your face in the camera…');
+          } catch(e) { /* FaceDetector exists but failed — ignore */ }
+        }
+
+        /* Model is already loading in background — just await completion */
+        setStatus('processing', mpReady ? 'ready' : 'finishing model load…');
         const det = await loadDetector();
 
         /* pick a random challenge */
@@ -1247,6 +1275,10 @@
     initKeyMode(false);
     initBars();
     setStatus('ready', 'ready');
+
+    /* Kick off model download immediately — silent background fetch.
+       By the time user clicks Start and grants camera, it's usually done. */
+    warmUpDetector();
   </script>
 
 </body>
