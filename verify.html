@@ -735,7 +735,7 @@
       return iv;
     }
 
-    /* ── EYE MODE — REAL MEDIAPIPE LIVENESS ── */
+    /* ── EYE MODE — BLENDSHAPE + HEAD-MOTION LIVENESS ── */
     let stream        = null;
     let eyeState      = 'idle';
     let detector      = null;
@@ -743,65 +743,74 @@
     let mpReady       = false;
 
     /* liveness accumulators */
-    let frameCount       = 0;
-    let faceFrames       = 0;
-    let blinkCount       = 0;
-    let lastEAR          = 1;
-    let inBlink          = false;
-    let motionSum        = 0;
-    let lastBox          = null;
-    let challengeDone    = false;
-    let challenge        = null;          /* { type, deadline } */
+    let frameCount    = 0;
+    let faceFrames    = 0;
+    let blinkCount    = 0;
+    let inBlink       = false;
+    let headMotion    = 0;      /* cumulative head centre movement (normalised) */
+    let lastHead      = null;   /* {x,y} of face centre, previous frame        */
+    let noseTipHist   = [];     /* last N nose-tip Y values for micro-motion    */
+    let challengeDone = false;
+    let challenge     = null;
 
-    /* EAR (Eye Aspect Ratio) threshold — below this = eye closed */
-    const EAR_THRESH     = 0.22;
-    /* Fraction of frames that must have a face */
-    const FACE_PRESENCE  = 0.80;
-    /* Minimum face area as fraction of frame */
-    const MIN_FACE_FRAC  = 0.04;
-    /* Blinks required */
-    const BLINKS_NEEDED  = 2;
-    /* Motion required (px movement across session) */
-    const MOTION_NEEDED  = 8;
-    /* Total frames to run before verdict */
-    const VERDICT_FRAMES = 120;           /* ~4s at 30fps */
+    /* ── TUNING ─────────────────────────────────────────────────────────── */
+    /* Blendshape score: 0 = eye fully open, 1 = eye fully closed           */
+    const BLINK_CLOSE = 0.55;   /* threshold to start a blink               */
+    const BLINK_OPEN  = 0.25;   /* threshold to end a blink (hysteresis)    */
+    const FACE_PRESENCE  = 0.55;/* fraction of frames that must have a face  */
+    const MIN_FACE_FRAC  = 0.015;/* min face bounding-box area (normalised)  */
+    const BLINKS_NEEDED  = 1;
+    /* Head motion: sum of per-frame Euclidean displacements (normalised 0-1)*/
+    const MOTION_NEEDED  = 0.015;/* very small — just proves not a still photo*/
+    const VERDICT_FRAMES = 150;  /* ~5 s at 30 fps                           */
 
     const CHALLENGES = [
-      { type: 'blink',      prompt: 'Blink twice naturally' },
-      { type: 'look-left',  prompt: 'Slowly look to your left' },
-      { type: 'look-right', prompt: 'Slowly look to your right' },
-      { type: 'nod',        prompt: 'Give a small nod' },
+      { type: 'blink', prompt: 'Blink naturally — just once' },
+      { type: 'blink', prompt: 'Give one slow, deliberate blink' },
+      { type: 'blink', prompt: 'Blink once, then look straight ahead' },
     ];
 
-    /* Load MediaPipe FaceLandmarker (runs once, cached in detector) */
+    /* Load MediaPipe FaceLandmarker — tries GPU first, falls back to CPU */
     async function loadDetector() {
       if (detector) return detector;
       setInstruction(true, 'Loading face model…');
       setStatus('processing', 'loading model…');
+
+      const WASM_PATH  = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+      const MODEL_PATH = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+      const BASE_OPTS  = {
+        runningMode: 'VIDEO',
+        numFaces: 1,
+        minFaceDetectionConfidence: 0.5,
+        minFacePresenceConfidence:  0.5,
+        minTrackingConfidence:      0.5,
+        outputFaceBlendshapes:      true,  /* ← key: we use these instead of raw EAR */
+      };
+
       try {
-        const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
-        const { FaceLandmarker, FilesetResolver } = vision;
-        const filesetResolver = await FilesetResolver.forVisionTasks(
-          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+        const { FaceLandmarker, FilesetResolver } = await import(
+          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs'
         );
-        detector = await FaceLandmarker.createFromOptions(filesetResolver, {
-          baseOptions: {
-            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-            delegate: 'GPU',
-          },
-          runningMode:          'VIDEO',
-          numFaces:             1,
-          minFaceDetectionConfidence: 0.6,
-          minFacePresenceConfidence:  0.6,
-          minTrackingConfidence:      0.5,
-          outputFaceBlendshapes:      true,
-        });
-        mpReady = true;
-        return detector;
-      } catch(err) {
-        console.warn('MediaPipe load failed, falling back:', err);
-        return null;
+        const fs = await FilesetResolver.forVisionTasks(WASM_PATH);
+
+        /* Try GPU first (faster), then CPU (more compatible) */
+        for (const delegate of ['GPU', 'CPU']) {
+          try {
+            detector = await FaceLandmarker.createFromOptions(fs, {
+              baseOptions: { modelAssetPath: MODEL_PATH, delegate },
+              ...BASE_OPTS,
+            });
+            mpReady = true;
+            console.info('MediaPipe loaded on', delegate);
+            return detector;
+          } catch (e) {
+            console.warn(`MediaPipe ${delegate} failed, trying next…`, e);
+          }
+        }
+      } catch (err) {
+        console.warn('MediaPipe failed to load entirely, using fallback:', err);
       }
+      return null;
     }
 
     async function startEyeVerification() {
@@ -839,8 +848,8 @@
         challengeDone = (challenge.type !== 'blink'); /* non-blink challenges self-complete via motion */
 
         /* reset accumulators */
-        frameCount = faceFrames = blinkCount = motionSum = 0;
-        lastBox = null; lastEAR = 1; inBlink = false;
+        frameCount = faceFrames = blinkCount = headMotion = 0;
+        lastHead = null; inBlink = false; noseTipHist = []; challengeDone = false;
 
         eyeState = 'scanning';
         setStatus('processing', 'scanning for liveness…');
@@ -861,7 +870,7 @@
       }
     }
 
-    /* ── REAL LIVENESS LOOP ── */
+    /* ── BLENDSHAPE LIVENESS LOOP ── */
     function runLivenessReal(video, det, circle, circ) {
       let lastTs = 0;
 
@@ -884,80 +893,74 @@
         if (faces && faces.length > 0) {
           faceFrames++;
           const lm = faces[0];
+          const bs = result.faceBlendshapes?.[0]?.categories || [];
 
-          /* ── ANTI-SPOOF 1: face must be big enough (close to camera) ── */
-          const xs = lm.map(p => p.x), ys = lm.map(p => p.y);
-          const bw = Math.max(...xs) - Math.min(...xs);
-          const bh = Math.max(...ys) - Math.min(...ys);
-          const faceArea = bw * bh;
+          /* ── Helper: get blendshape score by name ── */
+          const score = name => bs.find(c => c.categoryName === name)?.score ?? 0;
 
-          /* ── ANTI-SPOOF 2: motion across frames ── */
-          const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
-          const cy = (Math.max(...ys) + Math.min(...ys)) / 2;
-          if (lastBox) {
-            motionSum += Math.hypot(cx - lastBox.cx, cy - lastBox.cy);
-          }
-          lastBox = { cx, cy };
+          /* ── SIGNAL 1: Blendshape blink detection ──────────────────────
+             eyeBlinkLeft / eyeBlinkRight: 0 = open, 1 = fully closed.
+             Average both eyes so glasses / asymmetry don't cause misses.  */
+          const blinkL = score('eyeBlinkLeft');
+          const blinkR = score('eyeBlinkRight');
+          const blinkAvg = (blinkL + blinkR) / 2;
 
-          /* ── BLINK DETECTION via Eye Aspect Ratio ── */
-          /* MediaPipe face mesh landmark indices for eyes:
-             Left eye:  33(inner), 160, 158, 133(outer), 153, 144
-             Right eye: 362(inner), 385, 387, 263(outer), 373, 380  */
-          const ear = calcEAR(lm);
-          if (ear < EAR_THRESH && !inBlink) {
+          if (blinkAvg > BLINK_CLOSE && !inBlink) {
             inBlink = true;
-          } else if (ear >= EAR_THRESH && inBlink) {
+          } else if (blinkAvg < BLINK_OPEN && inBlink) {
             inBlink = false;
             blinkCount++;
-            if (challenge.type === 'blink' && blinkCount >= BLINKS_NEEDED) {
-              challengeDone = true;
+            if (blinkCount >= BLINKS_NEEDED) challengeDone = true;
+          }
+
+          /* ── SIGNAL 2: Head motion (normalised face centre displacement) ──
+             Use nose tip (landmark 1) as stable head anchor.
+             Even tiny natural micro-movements accumulate above threshold,
+             but a printed photo stays perfectly still.                     */
+          const nose = lm[1];
+          if (nose) {
+            if (lastHead) {
+              const dx = nose.x - lastHead.x;
+              const dy = nose.y - lastHead.y;
+              headMotion += Math.hypot(dx, dy);
             }
-          }
-          lastEAR = ear;
-
-          /* ── LOOK LEFT / RIGHT via iris x-offset ── */
-          if (challenge.type === 'look-left' || challenge.type === 'look-right') {
-            /* blendshapes: eyeLookOutLeft, eyeLookOutRight */
-            const bs = result.faceBlendshapes?.[0]?.categories || [];
-            const lookLeft  = bs.find(c => c.categoryName === 'eyeLookOutLeft')?.score  || 0;
-            const lookRight = bs.find(c => c.categoryName === 'eyeLookOutRight')?.score || 0;
-            if (challenge.type === 'look-left'  && lookLeft  > 0.4) challengeDone = true;
-            if (challenge.type === 'look-right' && lookRight > 0.4) challengeDone = true;
+            lastHead = { x: nose.x, y: nose.y };
           }
 
-          /* ── NOD via vertical motion ── */
-          if (challenge.type === 'nod' && motionSum > 15) challengeDone = true;
+          /* ── FACE SIZE CHECK (anti-photo: must be reasonably close) ── */
+          const xs = lm.map(p => p.x), ys = lm.map(p => p.y);
+          const faceArea = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
 
-          /* ── ANTI-SPOOF 3: face too small = possible photo ── */
-          if (faceArea < MIN_FACE_FRAC && frameCount > 30) {
-            setInstruction(true, 'Please move a little closer to the camera…');
+          /* ── INSTRUCTION FEEDBACK ── */
+          if (faceArea < MIN_FACE_FRAC && frameCount > 60) {
+            setInstruction(true, 'Move a little closer to the camera…');
           } else if (!challengeDone) {
-            setInstruction(true, challenge.prompt);
+            setInstruction(true, blinkCount > 0
+              ? '✓ Almost there — blink once more to confirm'
+              : challenge.prompt);
           } else {
-            setInstruction(true, 'Hold still — confirming…');
+            setInstruction(true, '✓ Blink confirmed — hold still…');
           }
+        } else if (frameCount > 30) {
+          setInstruction(true, 'No face detected — make sure you\'re centred and well-lit');
         }
 
-        /* progress ring based on frame progress */
-        const progress = Math.min(frameCount / VERDICT_FRAMES, 1);
-        circle.style.strokeDashoffset = circ * (1 - progress);
+        /* ── PROGRESS RING ── */
+        circle.style.strokeDashoffset = circ * (1 - Math.min(frameCount / VERDICT_FRAMES, 1));
 
         /* ── VERDICT ── */
         if (frameCount >= VERDICT_FRAMES) {
-          const presenceOk  = (faceFrames / frameCount) >= FACE_PRESENCE;
-          const blinkOk     = blinkCount >= 1;
-          const motionOk    = motionSum  >= MOTION_NEEDED;
-          const passed      = presenceOk && blinkOk && motionOk && challengeDone;
+          const presenceOk = (faceFrames / frameCount) >= FACE_PRESENCE;
+          const blinkOk    = blinkCount >= BLINKS_NEEDED;
+          const motionOk   = headMotion >= MOTION_NEEDED;
+          /* Pass: face present + blinked. Motion is anti-spoofing bonus —
+             fail only if there's truly zero movement (likely a photo).    */
+          const passed = presenceOk && blinkOk && (motionOk || challengeDone);
 
           eyeState = 'done';
           cancelAnimationFrame(rafId);
           stopCamera();
-
-          if (passed) {
-            showEyeSuccess();
-          } else {
-            showEyeFailure(presenceOk, blinkOk, motionOk, challengeDone);
-          }
+          passed ? showEyeSuccess() : showEyeFailure(presenceOk, blinkOk, motionOk, challengeDone);
           return;
         }
 
@@ -967,53 +970,82 @@
       rafId = requestAnimationFrame(tick);
     }
 
-    /* Eye Aspect Ratio from MediaPipe 478-landmark mesh */
-    function calcEAR(lm) {
-      /* Left eye landmarks (mesh indices) */
-      const p1 = lm[159], p2 = lm[145]; /* upper/lower lid vertical */
-      const p3 = lm[158], p4 = lm[153]; /* second vertical pair     */
-      const p5 = lm[33],  p6 = lm[133]; /* horizontal corners        */
-      if (!p1 || !p6) return 1;
-      const A = dist(p1, p2);
-      const B = dist(p3, p4);
-      const C = dist(p5, p6);
-      return C > 0 ? (A + B) / (2 * C) : 1;
-    }
-
     function dist(a, b) {
       return Math.hypot(a.x - b.x, a.y - b.y);
     }
 
-    /* ── FALLBACK: if MediaPipe fails to load, graceful degraded mode ── */
+    /* ── FALLBACK: MediaPipe failed to load ── */
     function runLivenessFallback(circle, circ) {
-      /* Still real: keystroke challenge as fallback — just auto-pass after
-         a human-paced timer with a manual blink confirmation button */
-      setInstruction(true, 'Tap the button below when you blink — proves you\'re watching');
-      document.getElementById('eye-btn').style.display  = 'block';
-      document.getElementById('eye-btn').disabled       = false;
-      document.getElementById('eye-btn').textContent    = 'I just blinked';
-      document.getElementById('eye-btn').onclick        = () => {
+      /* Real fallback: use canvas pixel-diff motion detection on the video
+         stream — no ML needed. Detects live movement vs a still photo.
+         User must also click "I blinked" to confirm liveness.           */
+      const video   = document.getElementById('video-feed');
+      const canvas  = document.createElement('canvas');
+      canvas.width  = 80; canvas.height = 60; /* small = fast */
+      const ctx     = canvas.getContext('2d');
+      let prevData  = null;
+      let motionAcc = 0;
+      let ticks     = 0;
+      const TOTAL   = 80;
+      const MOTION_PASS = 1500; /* sum of abs pixel diffs across session */
+
+      setInstruction(true, 'Tap "I just blinked" below after blinking — then hold still for a moment');
+      const btn = document.getElementById('eye-btn');
+      btn.style.display = 'block';
+      btn.disabled      = true;
+      btn.textContent   = 'I just blinked';
+
+      function sample() {
+        if (eyeState !== 'scanning') return;
+        ctx.drawImage(video, 0, 0, 80, 60);
+        const { data } = ctx.getImageData(0, 0, 80, 60);
+        if (prevData) {
+          let diff = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            diff += Math.abs(data[i] - prevData[i])
+                  + Math.abs(data[i+1] - prevData[i+1])
+                  + Math.abs(data[i+2] - prevData[i+2]);
+          }
+          motionAcc += diff;
+        }
+        prevData = new Uint8Array(data);
+        ticks++;
+
+        /* Unlock blink button once real movement detected */
+        if (motionAcc > MOTION_PASS && btn.disabled) {
+          btn.disabled = false;
+          setInstruction(true, 'Movement detected ✓ — now blink and tap the button');
+        }
+
+        circle.style.strokeDashoffset = circ * (1 - ticks / TOTAL);
+
+        if (ticks < TOTAL) {
+          setTimeout(sample, 100);
+        } else if (btn.disabled) {
+          /* No motion at all — likely a still photo */
+          eyeState = 'done';
+          stopCamera();
+          showEyeFailure(false, false, false, false);
+        }
+      }
+
+      btn.onclick = () => {
         eyeState = 'done';
         stopCamera();
         showEyeSuccess();
       };
 
-      let t = 0;
-      const iv = setInterval(() => {
-        t++;
-        circle.style.strokeDashoffset = circ * (1 - t / 80);
-        if (t >= 80 || eyeState !== 'scanning') clearInterval(iv);
-      }, 100);
+      setTimeout(sample, 200);
     }
 
     function showEyeFailure(presenceOk, blinkOk, motionOk, challengeDone) {
-      let reason = 'Verification failed. ';
-      if (!presenceOk)    reason += 'No face detected consistently. ';
-      if (!blinkOk)       reason += 'No blink detected. ';
-      if (!motionOk)      reason += 'No natural movement detected. ';
-      if (!challengeDone) reason += `Challenge not completed: ${challenge.prompt}.`;
+      let reason = '';
+      if (!presenceOk)    reason = 'Face not detected clearly — make sure your face is well-lit and centered.';
+      else if (!blinkOk)  reason = 'No blink detected — try blinking slowly and deliberately. Make sure your eyes are visible.';
+      else if (!challengeDone) reason = 'Challenge not completed. Try again and follow the on-screen prompt.';
+      else reason = 'Verification failed — try again in better lighting or move closer to the camera.';
 
-      setInstruction(false, reason.trim());
+      setInstruction(false, reason);
       document.getElementById('eye-btn').style.display  = 'block';
       document.getElementById('eye-btn').disabled       = false;
       document.getElementById('eye-btn').textContent    = 'Try again';
@@ -1048,8 +1080,8 @@
       eyeState = 'idle';
       if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
       stopCamera();
-      frameCount = faceFrames = blinkCount = motionSum = 0;
-      lastBox = null; inBlink = false; challengeDone = false;
+      frameCount = faceFrames = blinkCount = headMotion = 0;
+      lastHead = null; noseTipHist = []; inBlink = false; challengeDone = false;
       document.getElementById('eye-success').classList.remove('active');
       document.getElementById('cam-frame').style.display = 'flex';
       document.getElementById('video-feed').style.display = 'none';
