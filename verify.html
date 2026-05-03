@@ -859,6 +859,14 @@
 
         eyeState = 'scanning';
         setStatus('processing', 'scanning…');
+        setInstruction(true, 'Face detected — preparing…');
+
+        /* Yield to browser so it can paint the camera frame FIRST,
+           then kick off WASM compilation. This keeps the UI responsive. */
+        await new Promise(r => setTimeout(r, 100));
+
+        /* Now start loading — camera is already visible to user */
+        if (!_detectorPromise) _detectorPromise = _buildDetector();
 
         if (mpReady) {
           /* Model already loaded (background fetch finished) — go straight in */
@@ -1273,9 +1281,9 @@
     initBars();
     setStatus('ready', 'ready');
 
-    /* Kick off model download immediately — silent background fetch.
-       By the time user clicks Start and grants camera, it's usually done. */
-    warmUpDetector();
+    /* Don't preload on page load — WASM compilation freezes the main thread.
+       We start loading after getUserMedia resolves, yielding to the browser
+       to paint the camera frame first via setTimeout.                      */
   </script>
 
 </body>
