@@ -834,9 +834,13 @@
           video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
           audio: false,
         });
+        /* ── Show camera feed IMMEDIATELY after Allow is clicked ──
+           User sees their face straight away instead of a frozen screen.
+           Model continues loading in the background during this time.   */
         const video = document.getElementById('video-feed');
         video.srcObject = stream;
         await new Promise(r => video.onloadedmetadata = r);
+        video.play();
         video.style.display = 'block';
         document.getElementById('cam-placeholder').style.display = 'none';
         document.getElementById('scan-overlay').classList.add('active');
@@ -850,25 +854,34 @@
 
         eyeState = 'loading';
 
-        /* Show native face presence feedback while MediaPipe finishes loading.
-           Native FaceDetector (Chrome/Edge) is instant — zero download.
-           If unavailable we just skip straight to waiting for MediaPipe.   */
-        let nativeFaceOk = false;
-        if (window.FaceDetector) {
+        /* Use native FaceDetector (instant, no download) to give live feedback
+           while MediaPipe finishes compiling in the background.
+           Poll every 600ms so the user sees their face being tracked.      */
+        if (window.FaceDetector && !mpReady) {
           try {
             const nativeDet = new FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
-            const bitmap = await createImageBitmap(video);
-            const faces  = await nativeDet.detect(bitmap);
-            bitmap.close();
-            nativeFaceOk = faces.length > 0;
-            setInstruction(true, nativeFaceOk
-              ? 'Face detected ✓ — preparing liveness check…'
-              : 'Position your face in the camera…');
-          } catch(e) { /* FaceDetector exists but failed — ignore */ }
+            setInstruction(true, 'Preparing… position your face in the frame');
+            setStatus('processing', 'preparing…');
+            await new Promise(resolve => {
+              const poll = setInterval(async () => {
+                if (mpReady || eyeState !== 'loading') { clearInterval(poll); resolve(); return; }
+                try {
+                  const bitmap = await createImageBitmap(video);
+                  const faces  = await nativeDet.detect(bitmap);
+                  bitmap.close();
+                  setInstruction(true, faces.length > 0
+                    ? 'Face detected ✓ — almost ready…'
+                    : 'Position your face in the frame…');
+                } catch(e) { clearInterval(poll); resolve(); }
+              }, 600);
+              /* also resolve as soon as model is ready */
+              loadDetector().then(resolve);
+            });
+          } catch(e) { /* native FaceDetector unavailable — just wait */ }
         }
 
-        /* Model is already loading in background — just await completion */
-        setStatus('processing', mpReady ? 'ready' : 'finishing model load…');
+        /* Model is ready (or native FaceDetector unavailable) — await it */
+        setStatus('processing', 'starting scan…');
         const det = await loadDetector();
 
         /* pick a random challenge */
