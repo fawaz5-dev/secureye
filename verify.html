@@ -917,11 +917,24 @@
     const EAR_OPEN  = 0.24;   /* above = eye fully open again                  */
 
     function runLivenessReal(video, _det, circle, circ) {
-      const opts     = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 });
-      const startMs  = performance.now();
+      const opts    = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 });
+      const startMs = performance.now();
+      let running   = true;
 
-      async function tick() {
-        if (eyeState !== 'scanning') return;
+      /* Update progress ring smoothly via rAF — separate from detection */
+      function ringTick() {
+        if (!running) return;
+        const elapsed = performance.now() - startMs;
+        circle.style.strokeDashoffset = circ * (1 - Math.min(elapsed / SCAN_MS, 1));
+        requestAnimationFrame(ringTick);
+      }
+      requestAnimationFrame(ringTick);
+
+      /* Detection loop — runs every 100ms via setTimeout, not rAF.
+         This gives a reliable ~10fps detection rate completely decoupled
+         from the render loop, so SCAN_MS is always the real wall-clock time. */
+      async function detect() {
+        if (!running || eyeState !== 'scanning') return;
 
         const elapsed = performance.now() - startMs;
 
@@ -936,7 +949,7 @@
           faceFrames++;
           const pts = detection.landmarks.positions;
 
-          /* ── SIGNAL 1: EAR blink — mandatory, must happen ── */
+          /* ── SIGNAL 1: EAR blink — mandatory ── */
           const ear = earFrom68(pts);
           if (ear < EAR_CLOSE && !inBlink) {
             inBlink = true;
@@ -975,13 +988,11 @@
           setInstruction(true, 'No face detected — centre yourself and check lighting');
         }
 
-        /* ── PROGRESS RING — based on real time ── */
-        circle.style.strokeDashoffset = circ * (1 - Math.min(elapsed / SCAN_MS, 1));
-
-        /* ── VERDICT — time-based, blink is mandatory ── */
+        /* ── VERDICT — fires exactly at SCAN_MS wall-clock time ── */
         if (elapsed >= SCAN_MS) {
+          running = false;
           const presenceOk = frameCount > 0 && (faceFrames / frameCount) >= FACE_PRESENCE;
-          const blinkOk    = blinkCount >= BLINKS_NEEDED;   /* MUST blink — no bypass */
+          const blinkOk    = blinkCount >= BLINKS_NEEDED;  /* mandatory — no bypass */
           const motionOk   = headMotion >= MOTION_NEEDED;
           const passed     = presenceOk && blinkOk && motionOk;
           eyeState = 'done';
@@ -990,10 +1001,11 @@
           return;
         }
 
-        rafId = requestAnimationFrame(tick);
+        /* Schedule next detection in 100ms — reliable regardless of GPU speed */
+        rafId = setTimeout(detect, 100);
       }
 
-      rafId = requestAnimationFrame(tick);
+      detect();
     }
 
     function dist(a, b) {
@@ -1070,7 +1082,7 @@
     }
 
     function stopCamera() {
-      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      if (rafId) { cancelAnimationFrame(rafId); clearTimeout(rafId); rafId = null; }
       if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
     }
 
@@ -1091,7 +1103,7 @@
 
     function resetEye() {
       eyeState = 'idle';
-      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      if (rafId) { cancelAnimationFrame(rafId); clearTimeout(rafId); rafId = null; }
       stopCamera();
       frameCount = faceFrames = blinkCount = headMotion = 0;
       lastHead = null; noseTipHist = []; inBlink = false; challengeDone = false;
