@@ -750,8 +750,9 @@
     let headMotion    = 0;      /* cumulative head centre movement (normalised) */
     let lastHead      = null;   /* {x,y} of face centre, previous frame        */
     let noseTipHist   = [];     /* last N nose-tip Y values for micro-motion    */
-    let challengeDone = false;
-    let challenge     = null;
+    let challengeDone    = false;
+    let challenge        = null;
+    let blinkConfirmedAt = -1;   /* frameCount when blink was completed */
 
     /* ── TUNING ─────────────────────────────────────────────────────────── */
     const FACE_PRESENCE  = 0.55; /* fraction of frames that must have a face  */
@@ -843,7 +844,7 @@
         /* pick challenge and reset accumulators now, before any waiting */
         challenge = CHALLENGES[Math.floor(Math.random() * CHALLENGES.length)];
         frameCount = faceFrames = blinkCount = headMotion = 0;
-        lastHead = null; inBlink = false; noseTipHist = []; challengeDone = false;
+        lastHead = null; inBlink = false; noseTipHist = []; challengeDone = false; blinkConfirmedAt = -1;
 
         eyeState = 'scanning';
         setStatus('processing', 'scanning…');
@@ -874,7 +875,7 @@
             if (det && eyeState === 'scanning') {
               cancelAnimationFrame(rafId);
               frameCount = faceFrames = blinkCount = headMotion = 0;
-              lastHead = null; inBlink = false; noseTipHist = []; challengeDone = false;
+              lastHead = null; inBlink = false; noseTipHist = []; challengeDone = false; blinkConfirmedAt = -1;
               setInstruction(true, challenge.prompt);
               setStatus('processing', 'full liveness active');
               runLivenessReal(video, det, circle, circ);
@@ -945,7 +946,10 @@
           } else if (ear > EAR_OPEN && inBlink) {
             inBlink = false;
             blinkCount++;
-            if (blinkCount >= BLINKS_NEEDED) challengeDone = true;
+            if (blinkCount >= BLINKS_NEEDED) {
+              challengeDone    = true;
+              blinkConfirmedAt = frameCount;
+            }
           }
 
           /* ── SIGNAL 2: Head motion via nose tip (pt 30) ── */
@@ -971,8 +975,9 @@
             setInstruction(true, '✓ Blink confirmed — hold still…');
           }
 
-          /* ── EARLY PASS: don't wait full VERDICT_FRAMES if already satisfied ── */
-          if (challengeDone && headMotion >= MOTION_NEEDED && frameCount >= 30) {
+          /* ── EARLY PASS: wait ~0.8s after blink so it feels deliberate, not instant ── */
+          if (challengeDone && headMotion >= MOTION_NEEDED
+              && blinkConfirmedAt > 0 && (frameCount - blinkConfirmedAt) >= 25) {
             eyeState = 'done';
             stopCamera();
             showEyeSuccess();
