@@ -759,7 +759,8 @@
     const MIN_FACE_FRAC  = 0.03; /* min face bbox area as fraction of frame   */
     const BLINKS_NEEDED  = 1;
     const MOTION_NEEDED  = 0.015;/* tiny — just proves not a still photo      */
-    const VERDICT_FRAMES = 150;  /* ~5s — full window, verdict only at end     */
+    const SCAN_MS        = 5000; /* real-time window — not frame count         */
+    const MIN_WAIT_MS    = 2000; /* must wait at least 2s before verdict fires */
 
     const CHALLENGES = [
       { type: 'blink', prompt: 'Blink once' },
@@ -916,30 +917,26 @@
     const EAR_OPEN  = 0.24;   /* above = eye fully open again                  */
 
     function runLivenessReal(video, _det, circle, circ) {
-      /* _det is unused sentinel — face-api uses global faceapi object */
-      const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 });
-      let frameSkip = 0;
+      const opts     = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 });
+      const startMs  = performance.now();
 
       async function tick() {
         if (eyeState !== 'scanning') return;
 
-        /* Run detection every frame — TinyFaceDetector is fast enough on WebGL */
-        frameSkip++;
+        const elapsed = performance.now() - startMs;
+
         let detection = null;
         try {
-          detection = await faceapi
-            .detectSingleFace(video, opts)
-            .withFaceLandmarks();
-        } catch(e) { /* ignore single-frame errors */ }
+          detection = await faceapi.detectSingleFace(video, opts).withFaceLandmarks();
+        } catch(e) {}
 
         frameCount++;
 
         if (detection) {
           faceFrames++;
-          const lm  = detection.landmarks;
-          const pts = lm.positions;  /* array of faceapi.Point */
+          const pts = detection.landmarks.positions;
 
-          /* ── SIGNAL 1: EAR blink ── */
+          /* ── SIGNAL 1: EAR blink — mandatory, must happen ── */
           const ear = earFrom68(pts);
           if (ear < EAR_CLOSE && !inBlink) {
             inBlink = true;
@@ -948,11 +945,11 @@
             blinkCount++;
             if (blinkCount >= BLINKS_NEEDED) {
               challengeDone    = true;
-              blinkConfirmedAt = frameCount;
+              blinkConfirmedAt = elapsed;
             }
           }
 
-          /* ── SIGNAL 2: Head motion via nose tip (pt 30) ── */
+          /* ── SIGNAL 2: Head motion ── */
           const nose = pts[30];
           if (lastHead) {
             headMotion += Math.hypot(
@@ -963,33 +960,30 @@
           lastHead = nose;
 
           /* ── FACE SIZE CHECK ── */
-          const box = detection.detection.box;
+          const box      = detection.detection.box;
           const faceArea = (box.width * box.height) / (video.videoWidth * video.videoHeight);
 
           /* ── INSTRUCTION FEEDBACK ── */
-          if (faceArea < MIN_FACE_FRAC && frameCount > 30) {
+          if (faceArea < MIN_FACE_FRAC && elapsed > 1500) {
             setInstruction(true, 'Move a little closer to the camera…');
           } else if (!challengeDone) {
             setInstruction(true, challenge.prompt);
           } else {
             setInstruction(true, '✓ Blink confirmed — hold still…');
           }
-
-          /* No early pass — always run full VERDICT_FRAMES so blink feels intentional */
-
-        } else if (frameCount > 20) {
+        } else if (elapsed > 1500) {
           setInstruction(true, 'No face detected — centre yourself and check lighting');
         }
 
-        /* ── PROGRESS RING ── */
-        circle.style.strokeDashoffset = circ * (1 - Math.min(frameCount / VERDICT_FRAMES, 1));
+        /* ── PROGRESS RING — based on real time ── */
+        circle.style.strokeDashoffset = circ * (1 - Math.min(elapsed / SCAN_MS, 1));
 
-        /* ── VERDICT (timeout path) ── */
-        if (frameCount >= VERDICT_FRAMES) {
-          const presenceOk = (faceFrames / frameCount) >= FACE_PRESENCE;
-          const blinkOk    = blinkCount >= BLINKS_NEEDED;
+        /* ── VERDICT — time-based, blink is mandatory ── */
+        if (elapsed >= SCAN_MS) {
+          const presenceOk = frameCount > 0 && (faceFrames / frameCount) >= FACE_PRESENCE;
+          const blinkOk    = blinkCount >= BLINKS_NEEDED;   /* MUST blink — no bypass */
           const motionOk   = headMotion >= MOTION_NEEDED;
-          const passed     = presenceOk && blinkOk && (motionOk || challengeDone);
+          const passed     = presenceOk && blinkOk && motionOk;
           eyeState = 'done';
           stopCamera();
           passed ? showEyeSuccess() : showEyeFailure(presenceOk, blinkOk, motionOk, challengeDone);
