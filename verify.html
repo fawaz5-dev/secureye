@@ -845,7 +845,7 @@
         /* pick challenge and reset accumulators now, before any waiting */
         challenge = CHALLENGES[Math.floor(Math.random() * CHALLENGES.length)];
         frameCount = faceFrames = blinkCount = headMotion = 0;
-        lastHead = null; inBlink = false; noseTipHist = []; challengeDone = false; blinkConfirmedAt = -1;
+        lastHead = null; inBlink = false; noseTipHist = []; challengeDone = false; blinkConfirmedAt = -1; blinkFrames = 0;
 
         eyeState = 'scanning';
         setStatus('processing', 'scanning…');
@@ -876,7 +876,7 @@
             if (det && eyeState === 'scanning') {
               cancelAnimationFrame(rafId);
               frameCount = faceFrames = blinkCount = headMotion = 0;
-              lastHead = null; inBlink = false; noseTipHist = []; challengeDone = false; blinkConfirmedAt = -1;
+              lastHead = null; inBlink = false; noseTipHist = []; challengeDone = false; blinkConfirmedAt = -1; blinkFrames = 0;
               setInstruction(true, challenge.prompt);
               setStatus('processing', 'full liveness active');
               runLivenessReal(video, det, circle, circ);
@@ -912,9 +912,11 @@
       return (leftEAR + rightEAR) / 2;
     }
 
-    /* face-api EAR thresholds — 68-pt landmarks are more precise than blendshapes */
-    const EAR_CLOSE = 0.18;   /* below = eye clearly closing — filters squints */
-    const EAR_OPEN  = 0.24;   /* above = eye fully open again                  */
+    /* face-api EAR thresholds — pixel-space landmarks, typical open eye ~0.25-0.35 */
+    const EAR_CLOSE        = 0.20;  /* below this = eye closing                */
+    const EAR_OPEN         = 0.26;  /* above this = eye open again             */
+    const BLINK_MIN_FRAMES = 2;     /* EAR must stay closed for 2+ frames      */
+    let   blinkFrames      = 0;     /* consecutive frames with eye closed       */
 
     function runLivenessReal(video, _det, circle, circ) {
       const opts    = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 });
@@ -949,17 +951,22 @@
           faceFrames++;
           const pts = detection.landmarks.positions;
 
-          /* ── SIGNAL 1: EAR blink — mandatory ── */
+          /* ── SIGNAL 1: EAR blink — must close for 2+ consecutive frames ── */
           const ear = earFrom68(pts);
-          if (ear < EAR_CLOSE && !inBlink) {
-            inBlink = true;
-          } else if (ear > EAR_OPEN && inBlink) {
-            inBlink = false;
-            blinkCount++;
-            if (blinkCount >= BLINKS_NEEDED) {
-              challengeDone    = true;
-              blinkConfirmedAt = elapsed;
+          if (ear < EAR_CLOSE) {
+            blinkFrames++;
+            if (blinkFrames >= BLINK_MIN_FRAMES) inBlink = true;
+          } else {
+            if (inBlink && ear > EAR_OPEN) {
+              /* eye just reopened after confirmed close — register blink */
+              blinkCount++;
+              if (blinkCount >= BLINKS_NEEDED) {
+                challengeDone    = true;
+                blinkConfirmedAt = elapsed;
+              }
             }
+            blinkFrames = 0;
+            inBlink     = false;
           }
 
           /* ── SIGNAL 2: Head motion ── */
