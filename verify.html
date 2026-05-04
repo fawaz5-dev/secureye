@@ -754,72 +754,61 @@
     let challenge     = null;
 
     /* ── TUNING ─────────────────────────────────────────────────────────── */
-    /* Blendshape score: 0 = eye fully open, 1 = eye fully closed           */
-    const BLINK_CLOSE = 0.55;   /* threshold to start a blink               */
-    const BLINK_OPEN  = 0.25;   /* threshold to end a blink (hysteresis)    */
-    const FACE_PRESENCE  = 0.55;/* fraction of frames that must have a face  */
-    const MIN_FACE_FRAC  = 0.015;/* min face bounding-box area (normalised)  */
+    const FACE_PRESENCE  = 0.55; /* fraction of frames that must have a face  */
+    const MIN_FACE_FRAC  = 0.03; /* min face bbox area as fraction of frame   */
     const BLINKS_NEEDED  = 1;
-    /* Head motion: sum of per-frame Euclidean displacements (normalised 0-1)*/
-    const MOTION_NEEDED  = 0.015;/* very small — just proves not a still photo*/
-    const VERDICT_FRAMES = 150;  /* ~5 s at 30 fps                           */
+    const MOTION_NEEDED  = 0.008;/* normalised — tiny movement proves liveness*/
+    const VERDICT_FRAMES = 90;   /* ~3s timeout — early-pass fires much sooner*/
 
     const CHALLENGES = [
       { type: 'blink', prompt: 'Blink once' },
       { type: 'blink', prompt: 'Blink slowly — just once' },
     ];
 
-    /* ── MODEL LOADING ─────────────────────────────────────────────────────
-       Strategy: kick off the 30MB download immediately on page load,
-       silently in the background. By the time the user grants camera
-       permission and reads the UI, it's usually done.               */
-    const WASM_PATH  = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
-    const MODEL_PATH = '/face_landmarker.task';   /* self-hosted on Render CDN */
-    const BASE_OPTS  = {
-      runningMode: 'VIDEO',
-      numFaces: 1,
-      minFaceDetectionConfidence: 0.5,
-      minFacePresenceConfidence:  0.5,
-      minTrackingConfidence:      0.5,
-      outputFaceBlendshapes:      true,
-    };
+    /* ── MODEL LOADING — face-api.js ────────────────────────────────────────
+       face-api.js uses TensorFlow.js + WebGL. No WASM compilation.
+       Total model size ~2MB vs MediaPipe's 30MB — loads in ~1s.
+       Models hosted on jsDelivr CDN (already minified + gzipped).       */
+    const FACEAPI_CDN  = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights';
 
     let _detectorPromise = null;
 
     function warmUpDetector() {
-      /* Fire and forget — starts the download immediately on page load */
       if (!_detectorPromise) _detectorPromise = _buildDetector();
     }
 
     async function loadDetector() {
-      /* If already loading/loaded, return same promise — never double-fetch */
       if (!_detectorPromise) _detectorPromise = _buildDetector();
       return _detectorPromise;
     }
 
     async function _buildDetector() {
       try {
-        const { FaceLandmarker, FilesetResolver } = await import(
-          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs'
-        );
-        const fs = await FilesetResolver.forVisionTasks(WASM_PATH);
-        for (const delegate of ['GPU', 'CPU']) {
-          try {
-            const det = await FaceLandmarker.createFromOptions(fs, {
-              baseOptions: { modelAssetPath: MODEL_PATH, delegate },
-              ...BASE_OPTS,
-            });
-            mpReady = true;
-            console.info('MediaPipe ready on', delegate);
-            return det;
-          } catch (e) {
-            console.warn(`MediaPipe ${delegate} failed, trying next…`, e);
-          }
-        }
+        /* Dynamically load face-api.js from CDN */
+        await new Promise((resolve, reject) => {
+          if (window.faceapi) { resolve(); return; }
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js';
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
+
+        /* Load only what we need:
+           - TinyFaceDetector  (~190KB) — fast face detection
+           - FaceLandmark68Net (~350KB) — 68-point landmarks for EAR blink  */
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri(FACEAPI_CDN),
+          faceapi.nets.faceLandmark68Net.loadFromUri(FACEAPI_CDN),
+        ]);
+
+        mpReady = true;
+        console.info('face-api.js ready');
+        return true;  /* sentinel — runLivenessReal checks mpReady flag */
       } catch (err) {
-        console.warn('MediaPipe failed to load, using pixel-diff fallback:', err);
+        console.warn('face-api.js failed to load, using pixel-diff fallback:', err);
+        return null;
       }
-      return null;
     }
 
     async function startEyeVerification() {
@@ -902,95 +891,108 @@
       }
     }
 
-    /* ── BLENDSHAPE LIVENESS LOOP ── */
-    function runLivenessReal(video, det, circle, circ) {
-      let lastTs = 0;
+    /* ── face-api.js LIVENESS LOOP ────────────────────────────────────────
+       Uses TinyFaceDetector (fast) + 68-point landmarks for EAR blink.
+       EAR on 68-point model is highly reliable — dedicated eye pts 36-47. */
 
-      function tick(ts) {
+    /* EAR from face-api 68-point landmarks
+       Left eye:  pts 36–41   Right eye: pts 42–47
+       EAR = (|p1-p5| + |p2-p4|) / (2 * |p0-p3|)                        */
+    function earFrom68(pts) {
+      const ear = (eye) => {
+        const A = pts[eye[1]].sub(pts[eye[5]]).magnitude();
+        const B = pts[eye[2]].sub(pts[eye[4]]).magnitude();
+        const C = pts[eye[0]].sub(pts[eye[3]]).magnitude();
+        return C > 0 ? (A + B) / (2 * C) : 1;
+      };
+      const leftEAR  = ear([36, 37, 38, 39, 40, 41]);
+      const rightEAR = ear([42, 43, 44, 45, 46, 47]);
+      return (leftEAR + rightEAR) / 2;
+    }
+
+    /* face-api EAR thresholds — 68-pt landmarks are more precise than blendshapes */
+    const EAR_CLOSE = 0.21;   /* below = eye closing  */
+    const EAR_OPEN  = 0.27;   /* above = eye open again (hysteresis) */
+
+    function runLivenessReal(video, _det, circle, circ) {
+      /* _det is unused sentinel — face-api uses global faceapi object */
+      const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 });
+      let frameSkip = 0;
+
+      async function tick() {
         if (eyeState !== 'scanning') return;
-        if (ts - lastTs < 33) { rafId = requestAnimationFrame(tick); return; } /* ~30fps cap */
-        lastTs = ts;
 
-        let result;
+        /* Run detection every frame — TinyFaceDetector is fast enough on WebGL */
+        frameSkip++;
+        let detection = null;
         try {
-          result = det.detectForVideo(video, ts);
-        } catch(e) {
-          rafId = requestAnimationFrame(tick);
-          return;
-        }
+          detection = await faceapi
+            .detectSingleFace(video, opts)
+            .withFaceLandmarks();
+        } catch(e) { /* ignore single-frame errors */ }
 
-        const faces = result?.faceLandmarks;
         frameCount++;
 
-        if (faces && faces.length > 0) {
+        if (detection) {
           faceFrames++;
-          const lm = faces[0];
-          const bs = result.faceBlendshapes?.[0]?.categories || [];
+          const lm  = detection.landmarks;
+          const pts = lm.positions;  /* array of faceapi.Point */
 
-          /* ── Helper: get blendshape score by name ── */
-          const score = name => bs.find(c => c.categoryName === name)?.score ?? 0;
-
-          /* ── SIGNAL 1: Blendshape blink detection ──────────────────────
-             eyeBlinkLeft / eyeBlinkRight: 0 = open, 1 = fully closed.
-             Average both eyes so glasses / asymmetry don't cause misses.  */
-          const blinkL = score('eyeBlinkLeft');
-          const blinkR = score('eyeBlinkRight');
-          const blinkAvg = (blinkL + blinkR) / 2;
-
-          if (blinkAvg > BLINK_CLOSE && !inBlink) {
+          /* ── SIGNAL 1: EAR blink ── */
+          const ear = earFrom68(pts);
+          if (ear < EAR_CLOSE && !inBlink) {
             inBlink = true;
-          } else if (blinkAvg < BLINK_OPEN && inBlink) {
+          } else if (ear > EAR_OPEN && inBlink) {
             inBlink = false;
             blinkCount++;
             if (blinkCount >= BLINKS_NEEDED) challengeDone = true;
           }
 
-          /* ── SIGNAL 2: Head motion (normalised face centre displacement) ──
-             Use nose tip (landmark 1) as stable head anchor.
-             Even tiny natural micro-movements accumulate above threshold,
-             but a printed photo stays perfectly still.                     */
-          const nose = lm[1];
-          if (nose) {
-            if (lastHead) {
-              const dx = nose.x - lastHead.x;
-              const dy = nose.y - lastHead.y;
-              headMotion += Math.hypot(dx, dy);
-            }
-            lastHead = { x: nose.x, y: nose.y };
+          /* ── SIGNAL 2: Head motion via nose tip (pt 30) ── */
+          const nose = pts[30];
+          if (lastHead) {
+            headMotion += Math.hypot(
+              (nose.x - lastHead.x) / video.videoWidth,
+              (nose.y - lastHead.y) / video.videoHeight
+            );
           }
+          lastHead = nose;
 
-          /* ── FACE SIZE CHECK (anti-photo: must be reasonably close) ── */
-          const xs = lm.map(p => p.x), ys = lm.map(p => p.y);
-          const faceArea = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
+          /* ── FACE SIZE CHECK ── */
+          const box = detection.detection.box;
+          const faceArea = (box.width * box.height) / (video.videoWidth * video.videoHeight);
 
           /* ── INSTRUCTION FEEDBACK ── */
-          if (faceArea < MIN_FACE_FRAC && frameCount > 60) {
+          if (faceArea < MIN_FACE_FRAC && frameCount > 30) {
             setInstruction(true, 'Move a little closer to the camera…');
           } else if (!challengeDone) {
-            setInstruction(true, blinkCount > 0
-              ? '✓ Almost there — blink once more to confirm'
-              : challenge.prompt);
+            setInstruction(true, challenge.prompt);
           } else {
             setInstruction(true, '✓ Blink confirmed — hold still…');
           }
-        } else if (frameCount > 30) {
-          setInstruction(true, 'No face detected — make sure you\'re centred and well-lit');
+
+          /* ── EARLY PASS: don't wait full VERDICT_FRAMES if already satisfied ── */
+          if (challengeDone && headMotion >= MOTION_NEEDED && frameCount >= 30) {
+            eyeState = 'done';
+            stopCamera();
+            showEyeSuccess();
+            return;
+          }
+
+        } else if (frameCount > 20) {
+          setInstruction(true, 'No face detected — centre yourself and check lighting');
         }
 
         /* ── PROGRESS RING ── */
         circle.style.strokeDashoffset = circ * (1 - Math.min(frameCount / VERDICT_FRAMES, 1));
 
-        /* ── VERDICT ── */
+        /* ── VERDICT (timeout path) ── */
         if (frameCount >= VERDICT_FRAMES) {
           const presenceOk = (faceFrames / frameCount) >= FACE_PRESENCE;
           const blinkOk    = blinkCount >= BLINKS_NEEDED;
           const motionOk   = headMotion >= MOTION_NEEDED;
-          /* Pass: face present + blinked. Motion is anti-spoofing bonus —
-             fail only if there's truly zero movement (likely a photo).    */
-          const passed = presenceOk && blinkOk && (motionOk || challengeDone);
-
+          const passed     = presenceOk && blinkOk && (motionOk || challengeDone);
           eyeState = 'done';
-          cancelAnimationFrame(rafId);
           stopCamera();
           passed ? showEyeSuccess() : showEyeFailure(presenceOk, blinkOk, motionOk, challengeDone);
           return;
