@@ -758,8 +758,8 @@
     const FACE_PRESENCE  = 0.55; /* fraction of frames that must have a face  */
     const MIN_FACE_FRAC  = 0.03; /* min face bbox area as fraction of frame   */
     const BLINKS_NEEDED  = 1;
-    const MOTION_NEEDED  = 0.04; /* requires actual deliberate movement        */
-    const VERDICT_FRAMES = 120;  /* ~4s — enough time to blink naturally       */
+    const MOTION_NEEDED  = 0.015;/* tiny — just proves not a still photo      */
+    const VERDICT_FRAMES = 150;  /* ~5s — full window, verdict only at end     */
 
     const CHALLENGES = [
       { type: 'blink', prompt: 'Blink once' },
@@ -975,14 +975,7 @@
             setInstruction(true, '✓ Blink confirmed — hold still…');
           }
 
-          /* ── EARLY PASS: wait ~0.8s after blink so it feels deliberate, not instant ── */
-          if (challengeDone && headMotion >= MOTION_NEEDED
-              && blinkConfirmedAt > 0 && (frameCount - blinkConfirmedAt) >= 45) {
-            eyeState = 'done';
-            stopCamera();
-            showEyeSuccess();
-            return;
-          }
+          /* No early pass — always run full VERDICT_FRAMES so blink feels intentional */
 
         } else if (frameCount > 20) {
           setInstruction(true, 'No face detected — centre yourself and check lighting');
