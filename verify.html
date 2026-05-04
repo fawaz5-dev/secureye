@@ -765,9 +765,8 @@
     const VERDICT_FRAMES = 150;  /* ~5 s at 30 fps                           */
 
     const CHALLENGES = [
-      { type: 'blink', prompt: 'Blink naturally — just once' },
-      { type: 'blink', prompt: 'Give one slow, deliberate blink' },
-      { type: 'blink', prompt: 'Blink once, then look straight ahead' },
+      { type: 'blink', prompt: 'Blink once' },
+      { type: 'blink', prompt: 'Blink slowly — just once' },
     ];
 
     /* ── MODEL LOADING ─────────────────────────────────────────────────────
@@ -877,7 +876,7 @@
           /* Model still loading — start pixel-diff fallback immediately so
              user sees activity, then upgrade to full MediaPipe the moment
              the promise resolves. No waiting, no frozen screen.           */
-          setInstruction(true, 'Blink once when you’re ready — face detection loading…');
+          setInstruction(true, 'Blink once…');
           runLivenessFallback(circle, circ);
 
           /* Upgrade in background — if model finishes before user completes
@@ -1022,11 +1021,7 @@
       const TOTAL   = 80;
       const MOTION_PASS = 1500; /* sum of abs pixel diffs across session */
 
-      setInstruction(true, 'Tap "I just blinked" below after blinking — then hold still for a moment');
-      const btn = document.getElementById('eye-btn');
-      btn.style.display = 'block';
-      btn.disabled      = true;
-      btn.textContent   = 'I just blinked';
+      setInstruction(true, challenge ? challenge.prompt : 'Blink once…');
 
       function sample() {
         if (eyeState !== 'scanning') return;
@@ -1044,29 +1039,20 @@
         prevData = new Uint8Array(data);
         ticks++;
 
-        /* Unlock blink button once real movement detected */
-        if (motionAcc > MOTION_PASS && btn.disabled) {
-          btn.disabled = false;
-          setInstruction(true, 'Movement detected ✓ — now blink and tap the button');
+        if (motionAcc > MOTION_PASS) {
+          setInstruction(true, '✓ Movement detected — hold still…');
         }
 
         circle.style.strokeDashoffset = circ * (1 - ticks / TOTAL);
 
         if (ticks < TOTAL) {
           setTimeout(sample, 100);
-        } else if (btn.disabled) {
-          /* No motion at all — likely a still photo */
+        } else {
           eyeState = 'done';
           stopCamera();
-          showEyeFailure(false, false, false, false);
+          motionAcc > MOTION_PASS ? showEyeSuccess() : showEyeFailure(false, false, false, false);
         }
       }
-
-      btn.onclick = () => {
-        eyeState = 'done';
-        stopCamera();
-        showEyeSuccess();
-      };
 
       setTimeout(sample, 200);
     }
