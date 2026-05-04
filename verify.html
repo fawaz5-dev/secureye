@@ -758,8 +758,8 @@
     const FACE_PRESENCE  = 0.55; /* fraction of frames that must have a face  */
     const MIN_FACE_FRAC  = 0.03; /* min face bbox area as fraction of frame   */
     const BLINKS_NEEDED  = 1;
-    const MOTION_NEEDED  = 0.008;/* normalised — tiny movement proves liveness*/
-    const VERDICT_FRAMES = 90;   /* ~3s timeout — early-pass fires much sooner*/
+    const MOTION_NEEDED  = 0.04; /* requires actual deliberate movement        */
+    const VERDICT_FRAMES = 120;  /* ~4s — enough time to blink naturally       */
 
     const CHALLENGES = [
       { type: 'blink', prompt: 'Blink once' },
@@ -912,8 +912,8 @@
     }
 
     /* face-api EAR thresholds — 68-pt landmarks are more precise than blendshapes */
-    const EAR_CLOSE = 0.21;   /* below = eye closing  */
-    const EAR_OPEN  = 0.27;   /* above = eye open again (hysteresis) */
+    const EAR_CLOSE = 0.18;   /* below = eye clearly closing — filters squints */
+    const EAR_OPEN  = 0.24;   /* above = eye fully open again                  */
 
     function runLivenessReal(video, _det, circle, circ) {
       /* _det is unused sentinel — face-api uses global faceapi object */
@@ -977,7 +977,7 @@
 
           /* ── EARLY PASS: wait ~0.8s after blink so it feels deliberate, not instant ── */
           if (challengeDone && headMotion >= MOTION_NEEDED
-              && blinkConfirmedAt > 0 && (frameCount - blinkConfirmedAt) >= 25) {
+              && blinkConfirmedAt > 0 && (frameCount - blinkConfirmedAt) >= 45) {
             eyeState = 'done';
             stopCamera();
             showEyeSuccess();
