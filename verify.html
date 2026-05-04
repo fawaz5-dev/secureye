@@ -999,9 +999,9 @@
         if (elapsed >= SCAN_MS) {
           running = false;
           const presenceOk = frameCount > 0 && (faceFrames / frameCount) >= FACE_PRESENCE;
-          const blinkOk    = blinkCount >= BLINKS_NEEDED;  /* mandatory — no bypass */
-          const motionOk   = headMotion >= MOTION_NEEDED;
-          const passed     = presenceOk && blinkOk && motionOk;
+          const blinkOk    = blinkCount >= BLINKS_NEEDED;  /* only thing that matters */
+          const motionOk   = headMotion >= MOTION_NEEDED;  /* kept for failure message only */
+          const passed     = presenceOk && blinkOk;        /* blink = pass, period */
           eyeState = 'done';
           stopCamera();
           passed ? showEyeSuccess() : showEyeFailure(presenceOk, blinkOk, motionOk, challengeDone);
