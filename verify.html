@@ -950,7 +950,7 @@
         document.getElementById('scan-overlay').classList.add('active');
         document.getElementById('eye-progress').classList.add('active');
 
-        await new Promise(r => { video.onloadedmetadata = r; setTimeout(r, 200); });
+        await new Promise(r => { video.onloadedmetadata = r; setTimeout(r, 800); });
         video.play().catch(() => {});
 
         /* init progress ring */
@@ -974,12 +974,11 @@
           _detectorPromise = _buildDetector().then(d => { _detectorResult = d; return d; });
         }
 
-        /* Wait up to 500 ms for model — warmup started on page load so by
-           the time the user grants camera permission it's usually done.  */
-        const det = await Promise.race([
-          _detectorPromise,
-          new Promise(r => setTimeout(() => r(null), 500)),
-        ]);
+        /* Await the model — warmup started at page load so this is usually
+           instant (cached) or near-zero (finishing up). Camera is already
+           live so the user sees themselves while any remaining load plays out.
+           No arbitrary cap: we either get MediaPipe or get null cleanly.  */
+        const det = await _detectorPromise;
 
         if (det && eyeState === 'scanning') {
           console.info('[Secureye] Using MediaPipe blendshape tier');
@@ -1086,26 +1085,16 @@
         /* progress ring */
         circle.style.strokeDashoffset = circ * (1 - Math.min(frameCount / VERDICT_FRAMES, 1));
 
-        /* verdict — early exit once all signals satisfied, or at frame limit */
-        const presenceOk = frameCount > 0 && (faceFrames / frameCount) >= FACE_PRESENCE;
-        const blinkOk    = blinkCount >= BLINKS_NEEDED;
-        const motionOk   = headMotion >= MOTION_NEEDED;
-        const minFrames  = 30;  /* at least ~1 s of data before any verdict */
-
-        if (frameCount >= minFrames && presenceOk && blinkOk && motionOk) {
-          /* All conditions met — verify immediately, don't wait for full timer */
-          eyeState = 'done';
-          cancelAnimationFrame(rafId);
-          stopCamera();
-          showEyeSuccess();
-          return;
-        }
-
+        /* verdict */
         if (frameCount >= VERDICT_FRAMES) {
+          const presenceOk = (faceFrames / frameCount) >= FACE_PRESENCE;
+          const blinkOk    = blinkCount >= BLINKS_NEEDED;
+          const motionOk   = headMotion >= MOTION_NEEDED;
+          const passed     = presenceOk && blinkOk && motionOk;
           eyeState = 'done';
           cancelAnimationFrame(rafId);
           stopCamera();
-          showEyeFailure(presenceOk, blinkOk, motionOk, challengeDone);
+          passed ? showEyeSuccess() : showEyeFailure(presenceOk, blinkOk, motionOk, challengeDone);
           return;
         }
 
@@ -1483,9 +1472,10 @@
     initBars();
     setStatus('ready', 'ready');
 
-    /* Kick off MediaPipe download immediately — async import never blocks
-       the main thread. By the time the user reads the UI, grants camera
-       permission, and clicks Begin, the 30 MB model is usually cached.   */
+    /* Kick off MediaPipe download immediately on page load.
+       The async import() never blocks the main thread — WASM compiles
+       in a worker. By the time the user reads the UI, grants camera
+       permission, and clicks Begin, the model is usually fully cached. */
     warmUpDetector();
   </script>
 
