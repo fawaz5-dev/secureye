@@ -950,7 +950,7 @@
         document.getElementById('scan-overlay').classList.add('active');
         document.getElementById('eye-progress').classList.add('active');
 
-        await new Promise(r => { video.onloadedmetadata = r; setTimeout(r, 800); });
+        await new Promise(r => { video.onloadedmetadata = r; setTimeout(r, 200); });
         video.play().catch(() => {});
 
         /* init progress ring */
@@ -974,11 +974,11 @@
           _detectorPromise = _buildDetector().then(d => { _detectorResult = d; return d; });
         }
 
-        /* Wait briefly (up to 3 s) for model — avoids the "first try uses
-           fallback" problem. If it's already cached the wait is ~0 ms.    */
+        /* Wait up to 500 ms for model — warmup started on page load so by
+           the time the user grants camera permission it's usually done.  */
         const det = await Promise.race([
           _detectorPromise,
-          new Promise(r => setTimeout(() => r(null), 3000)),
+          new Promise(r => setTimeout(() => r(null), 500)),
         ]);
 
         if (det && eyeState === 'scanning') {
@@ -1086,16 +1086,26 @@
         /* progress ring */
         circle.style.strokeDashoffset = circ * (1 - Math.min(frameCount / VERDICT_FRAMES, 1));
 
-        /* verdict */
-        if (frameCount >= VERDICT_FRAMES) {
-          const presenceOk = (faceFrames / frameCount) >= FACE_PRESENCE;
-          const blinkOk    = blinkCount >= BLINKS_NEEDED;
-          const motionOk   = headMotion >= MOTION_NEEDED;
-          const passed     = presenceOk && blinkOk && motionOk;
+        /* verdict — early exit once all signals satisfied, or at frame limit */
+        const presenceOk = frameCount > 0 && (faceFrames / frameCount) >= FACE_PRESENCE;
+        const blinkOk    = blinkCount >= BLINKS_NEEDED;
+        const motionOk   = headMotion >= MOTION_NEEDED;
+        const minFrames  = 30;  /* at least ~1 s of data before any verdict */
+
+        if (frameCount >= minFrames && presenceOk && blinkOk && motionOk) {
+          /* All conditions met — verify immediately, don't wait for full timer */
           eyeState = 'done';
           cancelAnimationFrame(rafId);
           stopCamera();
-          passed ? showEyeSuccess() : showEyeFailure(presenceOk, blinkOk, motionOk, challengeDone);
+          showEyeSuccess();
+          return;
+        }
+
+        if (frameCount >= VERDICT_FRAMES) {
+          eyeState = 'done';
+          cancelAnimationFrame(rafId);
+          stopCamera();
+          showEyeFailure(presenceOk, blinkOk, motionOk, challengeDone);
           return;
         }
 
@@ -1473,9 +1483,10 @@
     initBars();
     setStatus('ready', 'ready');
 
-    /* Don't preload on page load — WASM compilation freezes the main thread.
-       We start loading after getUserMedia resolves, yielding to the browser
-       to paint the camera frame first via setTimeout.                      */
+    /* Kick off MediaPipe download immediately — async import never blocks
+       the main thread. By the time the user reads the UI, grants camera
+       permission, and clicks Begin, the 30 MB model is usually cached.   */
+    warmUpDetector();
   </script>
 
 </body>
