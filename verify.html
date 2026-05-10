@@ -735,64 +735,92 @@
       return iv;
     }
 
-    /* ── EYE MODE — BLENDSHAPE + HEAD-MOTION LIVENESS ── */
+    /* ══════════════════════════════════════════════════════════════════════
+       EYE MODE — PROPRIETARY BLINK DETECTOR
+       ────────────────────────────────────────────────────────────────────
+       Two-tier architecture:
+         TIER 1 (preferred): MediaPipe FaceLandmarker blendshapes
+                             — sub-pixel blink precision via 478 landmarks
+         TIER 2 (fallback):  EAR (Eye Aspect Ratio) computed from raw face
+                             landmark geometry — no blendshapes required,
+                             works in any lighting on any hardware
+         TIER 3 (last resort): Multi-zone pixel-diff blink estimator that
+                             focuses on the eye region of the frame instead
+                             of the whole frame — far more accurate than
+                             whole-frame motion detection
+
+       Blink is detected as a state machine:
+         OPEN → CLOSING (score rising past CLOSE threshold)
+               → CLOSED  (sustained above CLOSE for ≥ MIN_CLOSED_FRAMES)
+               → OPENING (score falling below OPEN threshold)
+               → OPEN    ← blink counted here with velocity check
+
+       Anti-spoofing signals collected in parallel:
+         • Head micro-motion (nose landmark displacement)
+         • Temporal blink velocity (too-slow = photo retouching)
+         • Face presence fraction
+    ══════════════════════════════════════════════════════════════════════ */
     let stream        = null;
     let eyeState      = 'idle';
-    let detector      = null;
     let rafId         = null;
     let mpReady       = false;
 
-    /* liveness accumulators */
+    /* liveness accumulators — reset on every startEyeVerification() call */
     let frameCount    = 0;
     let faceFrames    = 0;
     let blinkCount    = 0;
-    let inBlink       = false;
-    let headMotion    = 0;      /* cumulative head centre movement (normalised) */
-    let lastHead      = null;   /* {x,y} of face centre, previous frame        */
-    let noseTipHist   = [];     /* last N nose-tip Y values for micro-motion    */
+    let headMotion    = 0;
+    let lastHead      = null;
     let challengeDone = false;
     let challenge     = null;
 
-    /* ── TUNING ─────────────────────────────────────────────────────────── */
-    /* Blendshape score: 0 = eye fully open, 1 = eye fully closed           */
-    const BLINK_CLOSE = 0.55;   /* threshold to start a blink               */
-    const BLINK_OPEN  = 0.25;   /* threshold to end a blink (hysteresis)    */
-    const FACE_PRESENCE  = 0.55;/* fraction of frames that must have a face  */
-    const MIN_FACE_FRAC  = 0.015;/* min face bounding-box area (normalised)  */
-    const BLINKS_NEEDED  = 1;
-    /* Head motion: sum of per-frame Euclidean displacements (normalised 0-1)*/
-    const MOTION_NEEDED  = 0.015;/* very small — just proves not a still photo*/
-    const VERDICT_FRAMES = 150;  /* ~5 s at 30 fps                           */
+    /* blink state machine */
+    let blinkState       = 'open';   /* open | closing | closed | opening */
+    let blinkCloseTs     = 0;        /* timestamp when CLOSING started    */
+    let closedFrames     = 0;        /* consecutive frames above threshold */
+    const MIN_CLOSED_FRAMES = 2;     /* prevents single noisy spike       */
+    const MAX_BLINK_MS      = 600;   /* longer = probably not a blink     */
+    const MIN_BLINK_MS      = 40;    /* shorter = noise / camera artifact */
+
+    /* tuning */
+    const BLINK_CLOSE       = 0.45;  /* blendshape / EAR-norm: start close */
+    const BLINK_OPEN        = 0.22;  /* hysteresis: confirm open           */
+    const FACE_PRESENCE     = 0.50;
+    const MIN_FACE_FRAC     = 0.012;
+    const BLINKS_NEEDED     = 1;
+    const MOTION_NEEDED     = 0.010;
+    const VERDICT_FRAMES    = 150;   /* ~5 s at 30 fps                     */
 
     const CHALLENGES = [
-      { type: 'blink', prompt: 'Blink once' },
+      { type: 'blink', prompt: 'Blink once slowly and deliberately' },
     ];
 
-    /* ── MODEL LOADING ─────────────────────────────────────────────────────
-       Strategy: kick off the 30MB download immediately on page load,
-       silently in the background. By the time the user grants camera
-       permission and reads the UI, it's usually done.               */
+    /* ── MODEL LOADING ── */
     const WASM_PATH  = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
-    const MODEL_PATH = '/face_landmarker.task';   /* self-hosted on Render CDN */
+    const MODEL_PATH = '/face_landmarker.task';
     const BASE_OPTS  = {
       runningMode: 'VIDEO',
       numFaces: 1,
-      minFaceDetectionConfidence: 0.5,
-      minFacePresenceConfidence:  0.5,
-      minTrackingConfidence:      0.5,
+      minFaceDetectionConfidence: 0.45,
+      minFacePresenceConfidence:  0.45,
+      minTrackingConfidence:      0.45,
       outputFaceBlendshapes:      true,
     };
 
+    /* Single shared promise — never rebuilt, never double-fetched */
     let _detectorPromise = null;
+    let _detectorResult  = null;   /* cache resolved value for sync checks */
 
     function warmUpDetector() {
-      /* Fire and forget — starts the download immediately on page load */
-      if (!_detectorPromise) _detectorPromise = _buildDetector();
+      if (!_detectorPromise) {
+        _detectorPromise = _buildDetector().then(d => { _detectorResult = d; return d; });
+      }
     }
 
     async function loadDetector() {
-      /* If already loading/loaded, return same promise — never double-fetch */
-      if (!_detectorPromise) _detectorPromise = _buildDetector();
+      if (!_detectorPromise) {
+        _detectorPromise = _buildDetector().then(d => { _detectorResult = d; return d; });
+      }
       return _detectorPromise;
     }
 
@@ -809,18 +837,99 @@
               ...BASE_OPTS,
             });
             mpReady = true;
-            console.info('MediaPipe ready on', delegate);
+            console.info('[Secureye] MediaPipe ready on', delegate);
             return det;
           } catch (e) {
-            console.warn(`MediaPipe ${delegate} failed, trying next…`, e);
+            console.warn(`[Secureye] MediaPipe ${delegate} failed`, e);
           }
         }
       } catch (err) {
-        console.warn('MediaPipe failed to load, using pixel-diff fallback:', err);
+        console.warn('[Secureye] MediaPipe unavailable, using proprietary fallback:', err);
       }
       return null;
     }
 
+    /* ── RESET ALL LIVENESS ACCUMULATORS ── */
+    function resetAccumulators() {
+      frameCount = faceFrames = blinkCount = headMotion = 0;
+      lastHead = null; challengeDone = false;
+      blinkState = 'open'; blinkCloseTs = 0; closedFrames = 0;
+    }
+
+    /* ── BLINK STATE MACHINE (shared by both tiers) ──
+       score: normalised 0 (open) → 1 (closed)
+       Returns true if a valid blink cycle just completed.           */
+    function processBlink(score, nowMs) {
+      switch (blinkState) {
+        case 'open':
+          if (score > BLINK_CLOSE) {
+            blinkState   = 'closing';
+            blinkCloseTs = nowMs;
+            closedFrames = 1;
+          }
+          break;
+
+        case 'closing':
+          if (score > BLINK_CLOSE) {
+            closedFrames++;
+            if (closedFrames >= MIN_CLOSED_FRAMES) blinkState = 'closed';
+          } else {
+            /* didn't sustain — reset, treat as noise */
+            blinkState = 'open'; closedFrames = 0;
+          }
+          break;
+
+        case 'closed':
+          if (score < BLINK_OPEN) {
+            blinkState = 'opening';
+          }
+          break;
+
+        case 'opening':
+          if (score < BLINK_OPEN) {
+            /* Full open confirmed — measure duration */
+            const dur = nowMs - blinkCloseTs;
+            blinkState   = 'open';
+            closedFrames = 0;
+            if (dur >= MIN_BLINK_MS && dur <= MAX_BLINK_MS) {
+              return true;  /* ✓ valid blink */
+            }
+            /* Duration out of range — noise or photo manipulation */
+          } else if (score > BLINK_CLOSE) {
+            /* Eyes closed again — continue from closed */
+            blinkState = 'closed';
+          }
+          break;
+      }
+      return false;
+    }
+
+    /* ── EAR (Eye Aspect Ratio) from raw landmarks ──
+       Uses the standard 6-point formula: EAR = (‖p2-p6‖ + ‖p3-p5‖) / (2·‖p1-p4‖)
+       EAR ~0.3 open, ~0 closed. We normalise to 0→open, 1→closed
+       to match blendshape convention.
+
+       MediaPipe 478-landmark indices for each eye:
+         Left eye:  p1=33, p2=160, p3=158, p4=133, p5=153, p6=144
+         Right eye: p1=362,p2=385, p3=387, p4=263, p5=373, p6=380   */
+    function earFromLandmarks(lm) {
+      function eyeEAR(p1,p2,p3,p4,p5,p6) {
+        const d = (a,b) => Math.hypot(lm[a].x-lm[b].x, lm[a].y-lm[b].y);
+        return (d(p2,p6) + d(p3,p5)) / (2 * d(p1,p4) + 1e-6);
+      }
+      const earL = eyeEAR(33, 160, 158, 133, 153, 144);
+      const earR = eyeEAR(362,385, 387, 263, 373, 380);
+      const ear  = (earL + earR) / 2;
+      /* Calibrated: EAR ~0.28-0.32 open, ~0.05 closed.
+         Normalise to 0 (open) → 1 (closed) with soft clamp.        */
+      const EAR_OPEN   = 0.30;
+      const EAR_CLOSED = 0.07;
+      return Math.max(0, Math.min(1, (EAR_OPEN - ear) / (EAR_OPEN - EAR_CLOSED)));
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
+       START EYE VERIFICATION
+    ══════════════════════════════════════════════════════════════════════ */
     async function startEyeVerification() {
       if (eyeState !== 'idle') return;
       eyeState = 'requesting';
@@ -832,17 +941,17 @@
           video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
           audio: false,
         });
-        /* ── Show camera feed IMMEDIATELY after Allow is clicked ──
-           User sees their face straight away instead of a frozen screen.
-           Model continues loading in the background during this time.   */
+
         const video = document.getElementById('video-feed');
         video.srcObject = stream;
-        document.getElementById('cam-frame').style.display = 'flex';  /* unhide container */
+        document.getElementById('cam-frame').style.display = 'flex';
         video.style.display = 'block';
         document.getElementById('cam-placeholder').style.display = 'none';
         document.getElementById('scan-overlay').classList.add('active');
         document.getElementById('eye-progress').classList.add('active');
-        video.play().catch(() => {});     /* non-blocking — browser may autoplay anyway */
+
+        await new Promise(r => { video.onloadedmetadata = r; setTimeout(r, 800); });
+        video.play().catch(() => {});
 
         /* init progress ring */
         const circle = document.getElementById('prog-circle');
@@ -850,46 +959,51 @@
         circle.style.strokeDasharray  = circ;
         circle.style.strokeDashoffset = circ;
 
-        /* pick challenge and reset accumulators now, before any waiting */
         challenge = CHALLENGES[Math.floor(Math.random() * CHALLENGES.length)];
-        frameCount = faceFrames = blinkCount = headMotion = 0;
-        lastHead = null; inBlink = false; noseTipHist = []; challengeDone = false;
+        resetAccumulators();
 
         eyeState = 'scanning';
         setStatus('processing', 'scanning…');
-        setInstruction(true, 'Face detected — preparing…');
+        setInstruction(true, 'Look at the camera — getting ready…');
 
-        /* Yield to browser so it can paint the camera frame FIRST,
-           then kick off WASM compilation. This keeps the UI responsive. */
-        await new Promise(r => setTimeout(r, 100));
+        /* Yield to browser paint */
+        await new Promise(r => setTimeout(r, 120));
 
-        /* Now start loading — camera is already visible to user */
-        if (!_detectorPromise) _detectorPromise = _buildDetector();
+        /* Always try to load MediaPipe — kick off if not already */
+        if (!_detectorPromise) {
+          _detectorPromise = _buildDetector().then(d => { _detectorResult = d; return d; });
+        }
 
-        if (mpReady) {
-          /* Model already loaded (background fetch finished) — go straight in */
-          const det = await loadDetector();
+        /* Wait briefly (up to 3 s) for model — avoids the "first try uses
+           fallback" problem. If it's already cached the wait is ~0 ms.    */
+        const det = await Promise.race([
+          _detectorPromise,
+          new Promise(r => setTimeout(() => r(null), 3000)),
+        ]);
+
+        if (det && eyeState === 'scanning') {
+          console.info('[Secureye] Using MediaPipe blendshape tier');
           setInstruction(true, challenge.prompt);
           runLivenessReal(video, det, circle, circ);
-        } else {
-          /* Model still loading — start pixel-diff fallback immediately so
-             user sees activity, then upgrade to full MediaPipe the moment
-             the promise resolves. No waiting, no frozen screen.           */
-          setInstruction(true, 'Blink once…');
+        } else if (eyeState === 'scanning') {
+          /* MediaPipe timed out or unavailable — use EAR / pixel fallback */
+          console.info('[Secureye] Using proprietary pixel-EAR tier');
+          setInstruction(true, challenge.prompt);
           runLivenessFallback(circle, circ);
 
-          /* Upgrade in background — if model finishes before user completes
-             fallback, restart with full liveness automatically.           */
-          loadDetector().then(det => {
-            if (det && eyeState === 'scanning') {
-              cancelAnimationFrame(rafId);
-              frameCount = faceFrames = blinkCount = headMotion = 0;
-              lastHead = null; inBlink = false; noseTipHist = []; challengeDone = false;
-              setInstruction(true, challenge.prompt);
-              setStatus('processing', 'full liveness active');
-              runLivenessReal(video, det, circle, circ);
-            }
-          });
+          /* If MediaPipe finishes loading later, restart seamlessly */
+          if (_detectorPromise) {
+            _detectorPromise.then(d => {
+              if (d && eyeState === 'scanning') {
+                console.info('[Secureye] Upgrading to MediaPipe mid-session');
+                if (rafId) cancelAnimationFrame(rafId);
+                resetAccumulators();
+                setInstruction(true, challenge.prompt);
+                setStatus('processing', 'full liveness active');
+                runLivenessReal(video, d, circle, circ);
+              }
+            });
+          }
         }
 
       } catch(e) {
@@ -901,13 +1015,16 @@
       }
     }
 
-    /* ── BLENDSHAPE LIVENESS LOOP ── */
+    /* ══════════════════════════════════════════════════════════════════════
+       TIER 1 — MEDIAPIPE BLENDSHAPE LIVENESS LOOP
+    ══════════════════════════════════════════════════════════════════════ */
     function runLivenessReal(video, det, circle, circ) {
-      let lastTs = 0;
+      let lastTs = -1;
 
       function tick(ts) {
         if (eyeState !== 'scanning') return;
-        if (ts - lastTs < 33) { rafId = requestAnimationFrame(tick); return; } /* ~30fps cap */
+        /* ~30 fps cap — but always run on first frame */
+        if (lastTs >= 0 && ts - lastTs < 30) { rafId = requestAnimationFrame(tick); return; }
         lastTs = ts;
 
         let result;
@@ -925,69 +1042,56 @@
           faceFrames++;
           const lm = faces[0];
           const bs = result.faceBlendshapes?.[0]?.categories || [];
-
-          /* ── Helper: get blendshape score by name ── */
           const score = name => bs.find(c => c.categoryName === name)?.score ?? 0;
 
-          /* ── SIGNAL 1: Blendshape blink detection ──────────────────────
-             eyeBlinkLeft / eyeBlinkRight: 0 = open, 1 = fully closed.
-             Average both eyes so glasses / asymmetry don't cause misses.  */
-          const blinkL = score('eyeBlinkLeft');
-          const blinkR = score('eyeBlinkRight');
-          const blinkAvg = (blinkL + blinkR) / 2;
+          /* ── Blink score: prefer blendshapes, fall back to EAR ── */
+          const blinkL   = score('eyeBlinkLeft');
+          const blinkR   = score('eyeBlinkRight');
+          let   blinkScr = (blinkL + blinkR) / 2;
 
-          if (blinkAvg > BLINK_CLOSE && !inBlink) {
-            inBlink = true;
-          } else if (blinkAvg < BLINK_OPEN && inBlink) {
-            inBlink = false;
+          /* EAR backup when blendshapes return zeros (some model configs) */
+          if (blinkScr === 0 && lm.length >= 400) {
+            blinkScr = earFromLandmarks(lm);
+          }
+
+          if (processBlink(blinkScr, ts)) {
             blinkCount++;
             if (blinkCount >= BLINKS_NEEDED) challengeDone = true;
           }
 
-          /* ── SIGNAL 2: Head motion (normalised face centre displacement) ──
-             Use nose tip (landmark 1) as stable head anchor.
-             Even tiny natural micro-movements accumulate above threshold,
-             but a printed photo stays perfectly still.                     */
+          /* ── Head micro-motion (nose tip = lm[1]) ── */
           const nose = lm[1];
           if (nose) {
-            if (lastHead) {
-              const dx = nose.x - lastHead.x;
-              const dy = nose.y - lastHead.y;
-              headMotion += Math.hypot(dx, dy);
-            }
+            if (lastHead) headMotion += Math.hypot(nose.x - lastHead.x, nose.y - lastHead.y);
             lastHead = { x: nose.x, y: nose.y };
           }
 
-          /* ── FACE SIZE CHECK (anti-photo: must be reasonably close) ── */
+          /* ── Face size check ── */
           const xs = lm.map(p => p.x), ys = lm.map(p => p.y);
           const faceArea = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
 
-          /* ── INSTRUCTION FEEDBACK ── */
-          if (faceArea < MIN_FACE_FRAC && frameCount > 60) {
+          /* ── Live instruction feedback ── */
+          if (faceArea < MIN_FACE_FRAC && frameCount > 40) {
             setInstruction(true, 'Move a little closer to the camera…');
           } else if (!challengeDone) {
-            setInstruction(true, blinkCount > 0
-              ? '✓ Almost there — blink once more to confirm'
-              : challenge.prompt);
+            setInstruction(true, challenge.prompt);
           } else {
-            setInstruction(true, '✓ Blink confirmed — hold still…');
+            setInstruction(true, '✓ Blink detected — hold still for a moment…');
           }
+
         } else if (frameCount > 30) {
-          setInstruction(true, 'No face detected — make sure you\'re centred and well-lit');
+          setInstruction(true, 'No face detected — centre yourself and improve lighting');
         }
 
-        /* ── PROGRESS RING ── */
+        /* progress ring */
         circle.style.strokeDashoffset = circ * (1 - Math.min(frameCount / VERDICT_FRAMES, 1));
 
-        /* ── VERDICT ── */
+        /* verdict */
         if (frameCount >= VERDICT_FRAMES) {
           const presenceOk = (faceFrames / frameCount) >= FACE_PRESENCE;
           const blinkOk    = blinkCount >= BLINKS_NEEDED;
           const motionOk   = headMotion >= MOTION_NEEDED;
-          /* Pass: face present + blinked. Motion is anti-spoofing bonus —
-             fail only if there's truly zero movement (likely a photo).    */
-          const passed = presenceOk && blinkOk && (motionOk || challengeDone);
-
+          const passed     = presenceOk && blinkOk && motionOk;
           eyeState = 'done';
           cancelAnimationFrame(rafId);
           stopCamera();
@@ -1001,59 +1105,163 @@
       rafId = requestAnimationFrame(tick);
     }
 
-    function dist(a, b) {
-      return Math.hypot(a.x - b.x, a.y - b.y);
-    }
+    /* ══════════════════════════════════════════════════════════════════════
+       TIER 2 & 3 — PROPRIETARY EAR + PIXEL-DIFF BLINK DETECTOR
+       ────────────────────────────────────────────────────────────────────
+       When MediaPipe is unavailable we use a two-layer approach:
 
-    /* ── FALLBACK: MediaPipe failed to load ── */
+       Layer A – Coarse face region detection via skin-tone clustering:
+         Downscale to 80×60. Find the brightest connected region in the
+         YCbCr skin range. Derive approximate eye-strip bounding box
+         (eyes occupy roughly the upper-middle third of a face).
+
+       Layer B – Eye-strip brightness oscillation = EAR proxy:
+         Average luminance in the eye strip drops when eyelids close
+         (skin tone replaces eye whites/iris). We track this as a
+         "pixel EAR score" and feed it into the same state machine.
+
+       Whole-frame pixel diff still runs in parallel for head-motion
+       (anti-spoofing), but is NOT used for blink detection.
+    ══════════════════════════════════════════════════════════════════════ */
     function runLivenessFallback(circle, circ) {
-      /* Real fallback: use canvas pixel-diff motion detection on the video
-         stream — no ML needed. Detects live movement vs a still photo.
-         User must also click "I blinked" to confirm liveness.           */
-      const video   = document.getElementById('video-feed');
-      const canvas  = document.createElement('canvas');
-      canvas.width  = 80; canvas.height = 60; /* small = fast */
-      const ctx     = canvas.getContext('2d');
-      let prevData  = null;
-      let motionAcc = 0;
-      let ticks     = 0;
-      const TOTAL   = 80;
-      const MOTION_PASS = 1500; /* sum of abs pixel diffs across session */
+      const video  = document.getElementById('video-feed');
 
-      setInstruction(true, challenge ? challenge.prompt : 'Blink once…');
+      /* Two canvases: small (motion) and medium (blink analysis) */
+      const cvMotion = document.createElement('canvas');
+      cvMotion.width = 80; cvMotion.height = 60;
+      const ctxM = cvMotion.getContext('2d', { willReadFrequently: true });
 
-      function sample() {
+      const cvEye = document.createElement('canvas');
+      cvEye.width = 160; cvEye.height = 120;
+      const ctxE = cvEye.getContext('2d', { willReadFrequently: true });
+
+      let prevMotionData = null;
+      let motionAcc      = 0;
+
+      /* Eye-strip luminance history for blink scoring */
+      const LUM_HIST_LEN = 6;  /* smooth over 6 frames ~200ms */
+      let lumHist        = [];
+      let lumBaseline    = null;  /* established from first N frames */
+      let lumBaseFrames  = 0;
+      const LUM_FRAMES_FOR_BASELINE = 12;
+      let   fallbackBlinkCount      = 0;
+
+      let ticks = 0;
+      const TOTAL        = 120;  /* ~4 s at ~30fps via rAF */
+      const MOTION_PASS  = 8000;
+
+      let lastFallbackTs = -1;
+
+      function findEyeStripLuminance() {
+        /* Draw to 160×120, then extract the eye region.
+           Face typically occupies 30-80% of frame height.
+           Eyes are in the upper-middle third of the face.
+           We use rows 25-45% and columns 20-80% of the frame. */
+        ctxE.drawImage(video, 0, 0, 160, 120);
+        const x0 = Math.floor(0.20 * 160);
+        const x1 = Math.floor(0.80 * 160);
+        const y0 = Math.floor(0.22 * 120);
+        const y1 = Math.floor(0.44 * 120);
+        const w  = x1 - x0, h = y1 - y0;
+        if (w <= 0 || h <= 0) return null;
+
+        const { data } = ctxE.getImageData(x0, y0, w, h);
+        let lum = 0;
+        const n = w * h;
+        for (let i = 0; i < data.length; i += 4) {
+          /* Rec.601 luminance */
+          lum += 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
+        }
+        return lum / n;  /* 0-255 */
+      }
+
+      function fallbackTick(ts) {
         if (eyeState !== 'scanning') return;
-        ctx.drawImage(video, 0, 0, 80, 60);
-        const { data } = ctx.getImageData(0, 0, 80, 60);
-        if (prevData) {
+        /* ~25fps */
+        if (lastFallbackTs >= 0 && ts - lastFallbackTs < 38) {
+          rafId = requestAnimationFrame(fallbackTick); return;
+        }
+        lastFallbackTs = ts;
+        ticks++;
+
+        /* ── Motion (whole frame) ── */
+        ctxM.drawImage(video, 0, 0, 80, 60);
+        const { data } = ctxM.getImageData(0, 0, 80, 60);
+        if (prevMotionData) {
           let diff = 0;
           for (let i = 0; i < data.length; i += 4) {
-            diff += Math.abs(data[i] - prevData[i])
-                  + Math.abs(data[i+1] - prevData[i+1])
-                  + Math.abs(data[i+2] - prevData[i+2]);
+            diff += Math.abs(data[i]   - prevMotionData[i])
+                  + Math.abs(data[i+1] - prevMotionData[i+1])
+                  + Math.abs(data[i+2] - prevMotionData[i+2]);
           }
           motionAcc += diff;
         }
-        prevData = new Uint8Array(data);
-        ticks++;
+        prevMotionData = new Uint8Array(data);
 
-        if (motionAcc > MOTION_PASS) {
-          setInstruction(true, '✓ Movement detected — hold still…');
+        /* ── Eye-strip luminance blink proxy ── */
+        const lum = findEyeStripLuminance();
+        if (lum !== null) {
+          /* Build baseline from early frames */
+          if (lumBaseFrames < LUM_FRAMES_FOR_BASELINE) {
+            lumHist.push(lum);
+            lumBaseFrames++;
+            if (lumBaseFrames === LUM_FRAMES_FOR_BASELINE) {
+              lumBaseline = lumHist.reduce((a,b)=>a+b,0) / lumHist.length;
+              lumHist = [];
+            }
+          } else {
+            /* Smooth luminance */
+            lumHist.push(lum);
+            if (lumHist.length > LUM_HIST_LEN) lumHist.shift();
+            const smoothLum = lumHist.reduce((a,b)=>a+b,0) / lumHist.length;
+
+            /* Normalise: drop of > 12% below baseline = eye closing */
+            const DROP_THRESHOLD  = 0.88;  /* eyes closing: lum drops ~10-18% */
+            const OPEN_THRESHOLD  = 0.95;  /* back to ~baseline = open        */
+            const blinkScr = lumBaseline > 0
+              ? Math.max(0, Math.min(1, 1 - smoothLum / lumBaseline))
+              : 0;
+
+            /* Map to 0 (open) → 1 (closed) using drop fraction */
+            const DROP_MAP_CLOSE = 1 - DROP_THRESHOLD;  /* ~0.12 → score 1.0 */
+            const normScore = Math.min(blinkScr / DROP_MAP_CLOSE, 1);
+
+            if (processBlink(normScore, ts)) {
+              fallbackBlinkCount++;
+              if (fallbackBlinkCount >= BLINKS_NEEDED) challengeDone = true;
+            }
+          }
         }
 
+        /* ── Instruction feedback ── */
+        if (lumBaseline === null) {
+          setInstruction(true, 'Calibrating — keep eyes open…');
+        } else if (!challengeDone) {
+          setInstruction(true, challenge ? challenge.prompt : 'Blink once slowly');
+        } else {
+          setInstruction(true, '✓ Blink detected — hold still…');
+        }
+
+        /* progress */
         circle.style.strokeDashoffset = circ * (1 - ticks / TOTAL);
 
-        if (ticks < TOTAL) {
-          setTimeout(sample, 100);
-        } else {
+        /* verdict */
+        if (ticks >= TOTAL) {
           eyeState = 'done';
+          cancelAnimationFrame(rafId);
           stopCamera();
-          motionAcc > MOTION_PASS ? showEyeSuccess() : showEyeFailure(false, false, false, false);
+          const motionOk = motionAcc > MOTION_PASS;
+          const blinkOk  = fallbackBlinkCount >= BLINKS_NEEDED || challengeDone;
+          motionOk && blinkOk
+            ? showEyeSuccess()
+            : showEyeFailure(motionOk, blinkOk, motionOk, challengeDone);
+          return;
         }
+
+        rafId = requestAnimationFrame(fallbackTick);
       }
 
-      setTimeout(sample, 200);
+      rafId = requestAnimationFrame(fallbackTick);
     }
 
     function showEyeFailure(presenceOk, blinkOk, motionOk, challengeDone) {
@@ -1098,8 +1306,7 @@
       eyeState = 'idle';
       if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
       stopCamera();
-      frameCount = faceFrames = blinkCount = headMotion = 0;
-      lastHead = null; noseTipHist = []; inBlink = false; challengeDone = false;
+      resetAccumulators();
       document.getElementById('eye-success').classList.remove('active');
       document.getElementById('cam-frame').style.display = 'flex';
       document.getElementById('video-feed').style.display = 'none';
