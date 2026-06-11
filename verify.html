@@ -792,7 +792,7 @@
     const VERDICT_FRAMES    = 150;   /* ~5 s at 30 fps                     */
 
     const CHALLENGES = [
-      { type: 'blink', prompt: 'Blink once slowly and deliberately' },
+      { type: 'blink', prompt: 'Blink once naturally :)' },
     ];
 
     /* ── MODEL LOADING ── */
@@ -1295,6 +1295,9 @@
       const token = genToken();
       document.getElementById('eye-token').textContent = token;
       setStatus('done', 'verified — token issued');
+      if (window.parent !== window) {
+        window.parent.postMessage({ type: 'secureye:verified', token: token }, '*');
+      }
       startTTL('eye-ttl', () => {
         document.getElementById('eye-token').style.color = 'var(--red)';
         document.getElementById('eye-token').textContent = '[token expired]';
@@ -1428,6 +1431,9 @@
         const token = 'key_' + genToken().slice(4);
         document.getElementById('key-token').textContent = token;
         setStatus('done', 'verified — token issued');
+        if (window.parent !== window) {
+          window.parent.postMessage({ type: 'secureye:verified', token: token }, '*');
+        }
         startTTL('key-ttl', () => {
           document.getElementById('key-token').style.color = 'var(--red)';
           document.getElementById('key-token').textContent = '[token expired]';
